@@ -14,8 +14,8 @@ android {
         applicationId 'in.rupeeraid.mobile'
         minSdk 26
         targetSdk 35
-        versionCode 14
-        versionName '1.8.1'
+        versionCode 17
+        versionName '1.9.2'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         buildConfigField 'String', 'ITAD_CLIENT_ID', '"' + publicId + '"'
     }

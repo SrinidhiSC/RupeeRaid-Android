@@ -1,1 +1,7 @@
-<resources><color name="raid_launcher_background">#00000000</color></resources>
+<resources>
+    <color name="raid_launcher_background">#00000000</color>
+    <color name="launcher_amoled_pitch_bg">#000000</color>
+    <color name="launcher_neon_mono_bg">#20182C</color>
+    <color name="launcher_pixel_loot_bg">#211A11</color>
+    <color name="launcher_stealth_shield_bg">#101B1B</color>
+</resources>

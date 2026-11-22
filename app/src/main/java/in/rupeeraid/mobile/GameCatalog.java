@@ -24,11 +24,12 @@ final class GameCatalog {
         String cached=storage.read(file);
         JSONObject prior=cached.isEmpty()?new JSONObject():new JSONObject(cached);
         long now=System.currentTimeMillis()/1000;
-        int ttl=section.equals("about") || section.equals("series") ? 86400 : 300;
-        if(prior.has("data") && prior.optLong("saved")+ttl>now)return prior;
+        String generation=api.generation();
+        if(prior.has("data") && MobileApi.fresh(prior.optLong("saved"),now)
+                && generation.equals(prior.optString("generation")))return prior;
         try{
             Object content=fetch(id,game.getString("title"),section);
-            JSONObject result=new JSONObject().put("data",content).put("saved",now);
+            JSONObject result=new JSONObject().put("data",content).put("generation",generation).put("saved",System.currentTimeMillis()/1000);
             storage.write(file,result.toString());return result;
         }catch(Exception ex){
             String message=ex instanceof MobileApi.Failure?ex.getMessage():"Couldn’t reach IsThereAnyDeal. Try again when you’re online.";

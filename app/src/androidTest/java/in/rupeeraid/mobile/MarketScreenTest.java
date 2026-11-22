@@ -337,13 +337,13 @@ public class MarketScreenTest {
             onView(withText("Edit profile")).perform(click());
             onView(isAssignableFrom(android.widget.EditText.class)).perform(replaceText("Raid Tester"),closeSoftKeyboard());
             onView(withText("Save")).perform(click());awaitText("Raid Tester");
-            onView(withText("Theme  ·  Obsidian Emerald")).perform(scrollTo(),click());
+            onView(withContentDescription("Theme, Obsidian Emerald")).perform(scrollTo(),click());
             onView(withText("Cobalt Frost")).perform(click());awaitReady();awaitText("Raid Tester");
-            onView(withText("Theme  ·  Cobalt Frost")).perform(scrollTo()).check(matches(isDisplayed()));
-            onView(withText("In-app logo  ·  Bolt Rupee")).perform(scrollTo(),click());
+            onView(withContentDescription("Theme, Cobalt Frost")).perform(scrollTo()).check(matches(isDisplayed()));
+            onView(withContentDescription("App icon, Bolt Rupee")).perform(scrollTo(),click());
             onView(withText("Neon Mono")).perform(click());
-            onView(withText("In-app logo  ·  Neon Mono")).perform(scrollTo()).check(matches(isDisplayed()));
-            onView(withText("Startup tab  ·  Discover")).perform(scrollTo(),click());
+            onView(withContentDescription("App icon, Neon Mono")).perform(scrollTo()).check(matches(isDisplayed()));
+            onView(withContentDescription("Startup tab, Discover")).perform(scrollTo(),click());
             onView(withText("Wishlist")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
             onView(withContentDescription("Compact deal rows")).perform(scrollTo(),click());
             onView(withContentDescription("AMOLED black")).perform(scrollTo(),click());awaitReady();
@@ -364,10 +364,10 @@ public class MarketScreenTest {
         if(android.os.Build.VERSION.SDK_INT>=33)InstrumentationRegistry.getInstrumentation().getUiAutomation()
                 .grantRuntimePermission("in.rupeeraid.mobile","android.permission.POST_NOTIFICATIONS");
         onView(withContentDescription("Open navigation menu")).perform(click());
-        onView(withText("🔄 Refresh prices")).check(matches(isDisplayed()));preview("menu",false);pressBack();
+        onView(withText("Refresh prices")).check(matches(isDisplayed()));preview("menu",false);pressBack();
         onView(withContentDescription("Library")).perform(click());
-        onView(withText("Switch to list")).check(matches(isDisplayed()));preview("library",false);
-        onView(withText("Switch to list")).perform(click());onView(withText("Switch to grid")).perform(click());
+        onView(withContentDescription("Switch to list")).check(matches(isDisplayed()));preview("library",false);
+        onView(withContentDescription("Switch to list")).perform(click());onView(withContentDescription("Switch to grid")).perform(click());
         onView(withContentDescription("Wishlist")).perform(click());
         onView(withText("Set one alert for all wishlist games")).perform(click());
         onView(withText("One-year low or better")).perform(click());

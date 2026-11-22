@@ -26,6 +26,10 @@ final class GamePage {
     private JSONObject game;
     private String platform,filter="",historyKey="history";
     private TextView heroInfo;
+    private LinearLayout hero;
+    private View heroLoading;
+    private ImageView cover;
+    private int requestGeneration;
     private boolean redrawQueued;
     private int historyShop=-1,scrollY,tabX;
     private LinearLayout content,tabRow;
@@ -35,13 +39,15 @@ final class GamePage {
     void remember(){if(scroll!=null){scrollY=scroll.getScrollY();tabX=tabs==null?0:tabs.getScrollX();}}
     void mount(LinearLayout page,JSONObject game,String platform,String origin){
         this.game=game;this.platform=platform;scroll=(ScrollView)page.getParent();
-        TextView back=w.text("‹  "+origin,13,LILAC,true);back.setGravity(Gravity.CENTER_VERTICAL);back.setMinHeight(w.dp(36));page.addView(back);
-        w.action(back,w.shape(BG,5),screen::back);
-        LinearLayout hero=w.row();hero.setGravity(Gravity.TOP);w.pad(hero,12,14,12,14);
+        FrameLayout heroFrame=new FrameLayout(a);page.addView(heroFrame);
+        hero=w.row();hero.setGravity(Gravity.TOP);w.pad(hero,12,14,12,14);
         android.graphics.drawable.GradientDrawable heroBg=new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                new int[]{ACCENT_SURFACE,BG});heroBg.setCornerRadius(w.dp(20));heroBg.setStroke(w.dp(1),LINE);hero.setBackground(heroBg);page.addView(hero);
-        ImageView cover=w.artView();cover.setClipToOutline(true);cover.setBackground(w.shape(PANEL,14));
-        hero.addView(cover,new LinearLayout.LayoutParams(w.dp(104),w.dp(150)));w.art(cover,game,"boxart","banner400","banner300");
+                new int[]{ACCENT_SURFACE,BG});heroBg.setCornerRadius(w.dp(20));heroBg.setStroke(w.dp(1),LINE);hero.setBackground(heroBg);heroFrame.addView(hero);
+        hero.setVisibility(View.INVISIBLE);
+        heroLoading=w.loadingRows("Loading game overview");heroLoading.setBackground(w.shape(PANEL,20));
+        heroFrame.addView(heroLoading,new FrameLayout.LayoutParams(-1,-1));
+        cover=w.artView();cover.setClipToOutline(true);cover.setBackground(w.shape(PANEL,14));
+        hero.addView(cover,new LinearLayout.LayoutParams(w.dp(104),w.dp(150)));
         LinearLayout head=w.column();w.pad(head,14,3,0,0);hero.addView(head,w.flex());
         String type=Market.text(game,"type");
         line(head,PricingRegion.current.name().toUpperCase(Locale.ROOT)+"  /  "+(type.isEmpty()?"GAME":type.toUpperCase(Locale.ROOT))+"  ·  PC",11,LILAC,true,1);
@@ -67,8 +73,9 @@ final class GamePage {
         action(actions,"ignore",ignored?"Ignored":"Ignore",ignored,()->change("ignored",!ignored));
         tabs=new HorizontalScrollView(a);tabs.setHorizontalScrollBarEnabled(false);tabRow=w.row();tabs.addView(tabRow);
         LinearLayout.LayoutParams spacing=new LinearLayout.LayoutParams(-1,-2);spacing.topMargin=w.dp(12);page.addView(tabs,spacing);
-        content=w.column();page.addView(content);paintTabs(false);paintContent();
+        content=w.column();page.addView(content);
         if(a.personal && !loaded.containsKey("about"))request("about");
+        paintTabs(false);paintContent();
         final int oldY=scrollY,oldX=tabX;ScrollView current=scroll;HorizontalScrollView strip=tabs;
         current.post(()->{current.scrollTo(0,oldY);strip.scrollTo(oldX,0);});
     }
@@ -80,6 +87,15 @@ final class GamePage {
         if(developer.contains(" · "))developer=developer.substring(0,developer.indexOf(" · "));
         String metadata=String.join("  ·  ",nonempty(release.isEmpty()?"":release.substring(0,Math.min(4,release.length())),developer));
         heroInfo.setText(metadata);heroInfo.setVisibility(metadata.isEmpty()?View.GONE:View.VISIBLE);w.ellipsis(heroInfo,2);
+        if(a.personal && !loaded.containsKey("about"))return;
+        String portrait=info==null?"":Market.art(info,"boxart");
+        if(portrait.isEmpty())portrait=Market.art(game,"boxart");
+        String url=portrait.isEmpty()?Market.art(game,"banner600","banner400","banner300","banner145"):portrait;
+        ImageView target=cover;
+        w.heroArt(target,url,!portrait.isEmpty(),()->{
+            if(target!=cover || !screen.isGame(this))return;
+            heroLoading.setVisibility(View.GONE);hero.setVisibility(View.VISIBLE);
+        });
     }
     private static List<String> nonempty(String... values){List<String> result=new ArrayList<>();for(String value:values)if(!value.isEmpty())result.add(value);return result;}
     private boolean member(String list){return Market.contains(a.data.optJSONArray(list),id);}
@@ -118,6 +134,9 @@ final class GamePage {
         }
     }
     private void paintContent(){
+        loaded.entrySet().removeIf(entry-> !entry.getValue().has("message") &&
+                !MobileApi.fresh(entry.getValue().optLong("saved"),MainActivity.now()));
+        if(a.personal && !loaded.containsKey("about"))request("about");
         content.removeAllViews();
         if(tab.equals("offers")){offerOverview();return;}
         String active=tab;
@@ -153,7 +172,9 @@ final class GamePage {
     }
     private void request(String key){
         if(!waiting.add(key))return;
+        int generation=requestGeneration;
         a.gameSection(game,key,result->{
+            if(generation!=requestGeneration)return;
             waiting.remove(key);loaded.put(key,result);
             if(!screen.isGame(this))return;
             if(key.equals("about"))showHeroInfo();
@@ -165,7 +186,7 @@ final class GamePage {
             }
         });
     }
-    void credentialsChanged(){loaded.clear();}
+    void credentialsChanged(){requestGeneration++;waiting.clear();loaded.clear();}
     private void line(LinearLayout box,String value,int size,int color,boolean bold,int top){
         if(value.isEmpty())return;TextView v=w.text(value,size,color,bold);w.pad(v,0,top,0,0);box.addView(v);
     }
@@ -293,7 +314,6 @@ final class GamePage {
         }more(rows);
     }
     private void giveaways(JSONArray rows){
-        line(content,"🎁",26,WHITE,false,8);
         line(content,"ITAD’s giveaway feed covers multiple regions. Check the offer for regional eligibility.",13,MUTED,false,14);
         if(rows.length()==0)line(content,"No giveaways listed for this game.",14,MUTED,false,10);
         for(JSONObject g:firstRows(rows)){
@@ -367,7 +387,8 @@ final class GamePage {
         LinearLayout tile=w.column();tile.setBackground(w.shape(PANEL,16));w.pad(tile,13,11,13,11);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(row.getChildCount()==0?0:w.dp(5),w.dp(6),row.getChildCount()==0?w.dp(5):0,w.dp(6));row.addView(tile,lp);
         line(tile,name,13,MUTED,false,0);
-        line(tile,amount<0?"Unavailable":money(amount),amount<0?13:21,amount<0?MUTED:color,true,3);
+        boolean pending=amount<0 && a.personal && (!loaded.containsKey("record") || !loaded.containsKey("lows") || !loaded.containsKey("historyYear"));
+        line(tile,amount<0?(pending?"Loading…":"Unavailable"):money(amount),amount<0?13:21,amount<0?MUTED:color,true,3);
         line(tile,detail,11,MUTED,false,4);
     }
     private void history(JSONArray rows){

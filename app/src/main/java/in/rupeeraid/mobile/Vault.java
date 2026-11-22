@@ -26,7 +26,7 @@ final class Vault implements MobileApi.Storage {
     private String regionalName(String name) {
         switch (name) {
             case "lists": case "snapshot": case "quotes": case "waitPrices": case "collectionPrices":
-            case "priceAlerts": case "searchCache": return region.prefix() + name;
+            case "cacheGeneration": case "priceAlerts": case "searchCache": return region.prefix() + name;
             default: return name.startsWith("guide-") ? region.prefix() + name : name;
         }
     }
@@ -63,7 +63,7 @@ final class Vault implements MobileApi.Storage {
     }
     public void remove(String name) { file(name).delete(); }
     void clearRegionalData(){
-        File[] files=context.getNoBackupFilesDir().listFiles((dir,name)->name.startsWith("region-") || name.startsWith("guide-") || Arrays.asList("lists","snapshot","quotes","waitPrices","collectionPrices","priceAlerts","searchCache").contains(name));
+        File[] files=context.getNoBackupFilesDir().listFiles((dir,name)->name.startsWith("region-") || name.startsWith("guide-") || Arrays.asList("lists","snapshot","quotes","waitPrices","collectionPrices","priceAlerts","searchCache","cacheGeneration").contains(name));
         if(files!=null)for(File item:files)new AtomicFile(item).delete();
     }
 }

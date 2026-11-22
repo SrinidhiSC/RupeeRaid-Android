@@ -49,6 +49,8 @@ final class MarketScreen {
     private HorizontalScrollView shelf;
     private EditText search;
     private TextView refreshAction;
+    private final LinearLayout syncIndicator;
+    private final View syncIcon;
     private TextView unreadBadge;
 
     private final android.os.Handler typing=new android.os.Handler(android.os.Looper.getMainLooper());
@@ -117,10 +119,15 @@ final class MarketScreen {
         a.getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                 |View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         a.setContentView(root);
-        header=w.row();header.setBackgroundColor(BAR);w.pad(header,12,4,12,4);root.addView(header,new LinearLayout.LayoutParams(-1,w.dp(72)));
+        header=w.row();header.setBackgroundColor(BAR);w.pad(header,12,4,12,4);root.addView(header,new LinearLayout.LayoutParams(-1,w.dp(56)));
         progress=new ProgressBar(a,null,android.R.attr.progressBarStyleHorizontal);progress.setIndeterminate(true);
         progress.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(ACCENT));
         root.addView(progress,new LinearLayout.LayoutParams(-1,w.dp(2)));
+        syncIndicator=w.row();syncIndicator.setGravity(Gravity.CENTER);w.pad(syncIndicator,8,5,8,5);
+        syncIndicator.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        syncIcon=new Icon(a,"refresh",ACCENT);syncIndicator.addView(syncIcon,square(16));
+        TextView syncLabel=w.text("Refreshing…",12,LILAC,true);w.pad(syncLabel,7,0,0,0);syncIndicator.addView(syncLabel);
+        syncIndicator.setVisibility(View.GONE);root.addView(syncIndicator);
         message=w.text("",13,LILAC,false);message.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         w.pad(message,16,9,16,9);message.setBackgroundColor(RAISED);root.addView(message);
         FrameLayout viewport=new FrameLayout(a);root.addView(viewport,new LinearLayout.LayoutParams(-1,0,1));
@@ -131,7 +138,15 @@ final class MarketScreen {
     void status(){
         boolean animate=motion(a);
         if(progress.isIndeterminate()!=animate){progress.setIndeterminate(animate);if(!animate)progress.setProgress(100);}
-        progress.setVisibility(a.busy || !a.ready || lookupRunning && searching()?View.VISIBLE:View.GONE);
+        boolean manual=a.manualSync;
+        progress.setVisibility(!manual && (a.busy || !a.ready || lookupRunning && searching())?View.VISIBLE:View.GONE);
+        syncIndicator.setVisibility(manual?View.VISIBLE:View.GONE);
+        if(manual && animate && syncIcon.getAnimation()==null){
+            android.view.animation.RotateAnimation spin=new android.view.animation.RotateAnimation(0,360,
+                    android.view.animation.Animation.RELATIVE_TO_SELF,.5f,android.view.animation.Animation.RELATIVE_TO_SELF,.5f);
+            spin.setDuration(850);spin.setRepeatCount(android.view.animation.Animation.INFINITE);
+            spin.setInterpolator(new android.view.animation.LinearInterpolator());syncIcon.startAnimation(spin);
+        }else if(!manual || !animate)syncIcon.clearAnimation();
         if(!message.getText().toString().equals(a.note))message.setText(a.note);
         message.setVisibility(a.note.isEmpty()?View.GONE:View.VISIBLE);
         if(unreadBadge!=null){
@@ -142,10 +157,10 @@ final class MarketScreen {
     }
     void clock(){
         if(refreshAction==null)return;
-        long wait=a.firstReload && a.backoff<=MainActivity.now()?0:a.remaining();
+        long wait=a.remaining();
         String label=a.busy?"Syncing…":wait==0?"Refresh now":String.format(Locale.ROOT,"Refresh in %d:%02d",wait/60,wait%60);
         if(!label.contentEquals(refreshAction.getText()))refreshAction.setText(label);
-        refreshAction.setEnabled(!a.busy && wait==0);
+        ((View)refreshAction.getParent().getParent()).setEnabled(!a.busy && wait==0);
     }
     void reset(){
         section=startupTab();query="";order=defaultSort();selected=null;positions.clear();
@@ -178,6 +193,7 @@ final class MarketScreen {
         }
         if(!"search".equals(destination)){revision++;attempted="";localHits=Collections.emptyList();hideKeyboard();query="";catalogQuery="";catalogResults=new JSONArray();}
         selected=null;gamePage=null;trail.clear();section=destination;order=defaultSort();a.note="";render(true);
+        a.refreshIfExpired();
         if("library".equals(destination))a.libraryPrices();
     }
     boolean back(){
@@ -209,7 +225,7 @@ final class MarketScreen {
     }
     void keyChanged(){attempted="";catalogQuery="";catalogResults=new JSONArray();if(searching())queueSearch();if(gamePage!=null)gamePage.credentialsChanged();render(false);if(selected!=null)a.detailPrices(selected);}
     void detailResult(JSONObject game){
-        if(selected!=null && selected.optString("id").equals(game.optString("id"))){selected=game;render(false);}
+        if(selected!=null && selected.optString("id").equals(game.optString("id"))){selected=game;if(gamePage!=null)gamePage.offerMessage=Market.text(game,"offerWarning");render(false);}
     }
     private void hideKeyboard(){
         if(search!=null)((InputMethodManager)a.getSystemService(Context.INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(search.getWindowToken(),0);
@@ -220,9 +236,9 @@ final class MarketScreen {
         if(a.ready && a.signedIn && !restoredId.isEmpty()){selected=findGame(restoredId);restoredId="";}
         if(settingsScroll!=null){settingsOffset="settings".equals(section)?settingsScroll.getScrollY():0;settingsScroll=null;}
         remember();shelf=null;list=null;refreshAction=null;stage.removeAllViews();
-        String mode=!a.signedIn?"welcome":selected==null && section.equals("search")?"search":"browse";
+        String mode=!a.signedIn?"welcome":selected!=null?"game":section.equals("settings")?"settings":selected==null && section.equals("search")?"search":"browse";
         if(!mode.equals(headerMode)){makeHeader(mode);headerMode=mode;}
-        nav.setVisibility(a.signedIn?View.VISIBLE:View.GONE);
+        nav.setVisibility(a.signedIn && selected==null && !section.equals("settings")?View.VISIBLE:View.GONE);
         if(!a.ready){if(splash==null && !restoredActivity)showSplash();}
         else if(!a.signedIn){welcome();}
         else{
@@ -240,6 +256,12 @@ final class MarketScreen {
     }
     private void makeHeader(String mode){
         header.removeAllViews();search=null;unreadBadge=null;
+        if(mode.equals("settings") || mode.equals("game")){
+            header.addView(w.iconButton("back","Back",this::back),square(44));
+            header.addView(w.text(mode.equals("settings")?"Account & Settings":"Game details",18,WHITE,true),w.flex());
+            header.addView(w.iconButton("refresh","Refresh prices and details",a::manualRefresh),square(44));
+            return;
+        }
         if(mode.equals("search")){
             FrameLayout back=w.iconButton("back","Back",this::back);header.addView(back,square(46));
             search=new EditText(a);search.setSingleLine();search.setTextColor(WHITE);search.setTextSize(16);
@@ -307,17 +329,42 @@ final class MarketScreen {
         View handle=new View(a);handle.setBackground(w.shape(MUTED,4));
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(w.dp(40),w.dp(4));hp.gravity=Gravity.CENTER_HORIZONTAL;body.addView(handle,hp);
         String name=a.getPreferences(0).getString("nickname","").trim();
-        pageAction(body,(name.isEmpty()?Market.accountName(a.data):name)+"   ·   ⚙️ Account & Settings   ›",false,()->{sheet.dismiss();go("settings");});
-        LinearLayout actions=w.row();w.pad(actions,0,10,0,7);body.addView(actions);
-        actions.addView(w.button("🔄 Refresh prices",false,()->{sheet.dismiss();a.manualRefresh();}),w.flex());
-        LinearLayout.LayoutParams alertsLayout=w.flex();
-        alertsLayout.setMarginStart(w.dp(8));
-        actions.addView(w.button("🔔 Price alerts",false,()->{sheet.dismiss();go("alerts");}),alertsLayout);
-        String[][] links={{"settings","⚙️ Account & Settings"},{"trending","🔥 Trending games"},{"deals","⚡ New deals"},{"best","🏷️ Best discounts"},{"lows","💎 Historical lows"},{"free","🎁 Free offers"},{"ignored","🚫 Ignored games"},{"replay","↻ Replay Loading Screen"}};
-        for(String[] entry:links){
-            TextView link=w.text(entry[1],15,entry[0].equals("settings")?ACCENT:WHITE,true);
-            w.pad(link,14,13,12,13);w.action(link,w.shape(PANEL,8),()->{sheet.dismiss();if(entry[0].equals("replay"))showSplash();else go(entry[0]);});body.addView(link);
+        LinearLayout profile=w.row();w.pad(profile,12,10,12,10);
+        LinearLayout.LayoutParams profileParams=new LinearLayout.LayoutParams(-1,-2);profileParams.topMargin=w.dp(12);
+        body.addView(profile,profileParams);
+        profile.addView(brandLogo(40),square(40));
+        LinearLayout identity=w.column();w.pad(identity,10,0,4,0);profile.addView(identity,w.flex());
+        String display=name.isEmpty()?Market.accountName(a.data):name;
+        boolean generic=name.isEmpty() && display.equals("IsThereAnyDeal member");
+        TextView profileName=w.text(generic?"Your profile":display,16,WHITE,true);
+        profileName.setShadowLayer(w.dp(4),0,0,(ACCENT & 0x00ffffff) | 0xaa000000);
+        w.ellipsis(profileName,2);w.pad(profileName,2,2,2,2);identity.addView(profileName);
+        identity.addView(w.text("IsThereAnyDeal member · "+PricingRegion.current.name(),12,MUTED,false));
+        TextView badge=w.text("SETTINGS  ›",10,LILAC,true);w.pad(badge,7,3,7,3);
+        GradientDrawable badgeFill=w.shape(ACCENT_SURFACE,7);badgeFill.setStroke(w.dp(1),ACCENT);badge.setBackground(badgeFill);
+        profile.addView(badge);w.action(profile,w.shape(RAISED,14),()->{sheet.dismiss();go("settings");});
+        LinearLayout actions=w.row();w.pad(actions,0,10,0,8);body.addView(actions);
+        for(String[] item:new String[][]{{"refresh","Refresh prices"},{"bell","Price alerts"}}){
+            boolean refresh=item[0].equals("refresh");LinearLayout cell=w.row();w.pad(cell,10,8,10,8);
+            cell.setMinimumHeight(w.dp(48));cell.addView(new Icon(a,item[0],refresh?ACCENT:SECONDARY),square(18));
+            TextView label=w.text(item[1],13,WHITE,true);w.pad(label,8,0,0,0);cell.addView(label);
+            w.action(cell,w.shape(RAISED,12),()->{sheet.dismiss();if(refresh)a.manualRefresh();else go("alerts");});
+            LinearLayout.LayoutParams lp=w.flex();if(!refresh)lp.setMarginStart(w.dp(8));actions.addView(cell,lp);
         }
+        LinearLayout links=w.column();links.setBackground(w.shape(PANEL,14));w.pad(links,6,1,6,1);body.addView(links);
+        for(String key:new String[]{"trending","lows","wishlist","library","replay"}){
+            JSONArray entries=a.data.optJSONArray(key);
+            String value=key.equals("lows")?"HL":entries!=null && (key.equals("wishlist") || key.equals("library"))
+                    ?Integer.toString(entries.length())+(key.equals("library")?" PC":""):"";
+            String label=key.equals("replay")?"Replay loading screen":key.equals("wishlist")?"Wishlist & target alerts":
+                    key.equals("library")?"PC library":key.equals("trending")?"Discover & trending":title(key);
+            settingRow(links,label,value,()->{sheet.dismiss();if(key.equals("replay"))showSplash();else go(key);});
+        }
+        LinearLayout extra=w.column();
+        settingRow(links,"More options","",()->extra.setVisibility(extra.getVisibility()==View.GONE?View.VISIBLE:View.GONE));
+        extra.setVisibility(View.GONE);links.addView(extra);
+        for(String key:new String[]{"deals","best","free","ignored"})
+            settingRow(extra,title(key),"",()->{sheet.dismiss();go(key);});
         sheet.setContentView(scroll);android.view.Window window=sheet.getWindow();
         window.setBackgroundDrawableResource(android.R.color.transparent);window.setGravity(Gravity.BOTTOM);window.setLayout(-1,-2);
         window.setDimAmount(.68f);sheet.show();
@@ -456,13 +503,13 @@ final class MarketScreen {
                 if(q!=null && q.optLong("regular",-1)>=0){total+=q.optLong("regular");priced++;}}
             LinearLayout stats=w.row();w.pad(stats,16,3,16,10);
             for(String value:new String[]{"Owned games\n"+entries.size()+" PC","Retail value · "+priced+" priced\n"+(priced==0?"—":total==0?"0 "+PricingRegion.current.currency:money(total))}){
-                TextView tile=w.text(value,15,WHITE,true);w.pad(tile,12,12,12,12);tile.setBackground(w.shape(PANEL,16));
+                TextView tile=w.text(value,14,WHITE,true);w.pad(tile,10,8,10,8);tile.setBackground(w.shape(PANEL,16));
                 LinearLayout.LayoutParams tileLayout=w.flex();
                 if(stats.getChildCount()>0)tileLayout.setMarginStart(w.dp(8));
                 stats.addView(tile,tileLayout);
             }
             feed.add(stats);
-            feed.add(insetButton(grid?"Switch to list":"Switch to grid",()->{a.getSharedPreferences("appearance",0).edit().putBoolean("libraryGrid",!grid).apply();render(false);}));
+
         }
         if(section.equals("wishlist")){
             JSONObject universal=a.alertState.optJSONObject("universal");
@@ -471,7 +518,7 @@ final class MarketScreen {
         }
         if(section.equals("search") && !a.personal && query.trim().length()>=2)
             feed.add(insetButton("Enable full catalog with a personal key",a::editKey));
-        if(section.equals("library") || section.equals("ignored")){
+        if(section.equals("ignored")){
             String other=section.equals("library")?"ignored":"library";
             feed.add(insetButton(other.equals("ignored")?"View ignored games":"View library",()->go(other)));
         }
@@ -535,6 +582,13 @@ final class MarketScreen {
         TextView sortLabel=w.text(order.equals("Default")?"Sort":order,13,LILAC,true);w.pad(sortLabel,5,0,0,0);sort.addView(sortLabel);
         sort.setMinimumHeight(w.dp(40));sort.setContentDescription("Sort games");
         w.action(sort,w.shape(PANEL,7),()->chooseSort("Sort games",order,choice->{order=choice;render(false);}));
+        if(section.equals("library")){
+            boolean grid=a.getSharedPreferences("appearance",0).getBoolean("libraryGrid",true);
+            String layout=grid?"Switch to list":"Switch to grid";
+            h.addView(w.iconButton(grid?"list":"grid",layout,()->{
+                a.getSharedPreferences("appearance",0).edit().putBoolean("libraryGrid",!grid).apply();render(false);
+            }),square(44));
+        }
         h.addView(sort);return h;
     }
     private String defaultSort(){return a.getSharedPreferences("appearance",0).getString("defaultSort","Default");}
@@ -563,7 +617,7 @@ final class MarketScreen {
         android.app.Dialog dialog=new android.app.Dialog(a);
         ScrollView scroll=new ScrollView(a);
         LinearLayout body=w.column();body.setBackground(w.shape(PANEL,20));w.pad(body,16,16,16,16);scroll.addView(body);
-        addText(body,themes?"App theme":"In-app logo",20,WHITE,true,0);
+        addText(body,themes?"App theme":"App icon",20,WHITE,true,0);
         for(int i=0;i<(themes?AppTheme.values().length:LOGOS.length);i++){
             AppTheme theme=themes?AppTheme.values()[i]:AppTheme.saved(a);
             String label=themes?theme.label:LOGOS[i];
@@ -583,7 +637,7 @@ final class MarketScreen {
                 if(themes){
                     boolean black=prefs.getBoolean("blackCanvas","AMOLED".equals(prefs.getString("theme","Midnight")));
                     prefs.edit().putBoolean("blackCanvas",black).putString("theme",theme.key).apply();a.recreate();
-                }else{prefs.edit().putString("logo",label).apply();headerMode="";render(false);}
+                }else{LauncherIcons.select(a,label);prefs.edit().putString("logo",label).apply();headerMode="";render(false);}
             });
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=w.dp(6);body.addView(row,lp);
         }
@@ -613,7 +667,7 @@ final class MarketScreen {
     private View quickFilters(){
         HorizontalScrollView scroll=new HorizontalScrollView(a);scroll.setHorizontalScrollBarEnabled(false);
         LinearLayout row=w.row();w.pad(row,16,5,6,10);scroll.addView(row);
-        String[][] filters={{"All","home"},{"💎 Historical Lows","lows"},{"💸 Under "+money(30000),"budget"},{"🔥 Top Discounts","best"},{"🎁 Free","free"}};
+        String[][] filters={{"All","home"},{"Historical lows","lows"},{"Under "+money(30000),"budget"},{"Top discounts","best"},{"Free","free"}};
         for(String[] item:filters){
             boolean current=section.equals(item[1]);TextView chip=w.text(item[0],13,current?INK:MUTED,true);w.pad(chip,14,8,14,8);
             w.action(chip,w.shape(current?ACCENT:PANEL,999),()->go(item[1]));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2);lp.rightMargin=w.dp(9);row.addView(chip,lp);
@@ -678,7 +732,7 @@ final class MarketScreen {
         w.pad(page,16,18,16,24);
         scroll.addView(page);
         FrameLayout.LayoutParams bounds=new FrameLayout.LayoutParams(-1,-1);
-        if(a.signedIn) bounds.bottomMargin=w.dp(74);
+        if(nav.getVisibility()==View.VISIBLE) bounds.bottomMargin=w.dp(74);
         stage.addView(scroll,bounds);
         return page;
     }
@@ -692,6 +746,13 @@ final class MarketScreen {
     private TextView pageAction(LinearLayout box,String label,boolean primary,Runnable run){
         TextView v=w.button(label,primary,run);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
         p.topMargin=w.dp(8);box.addView(v,p);return v;
+    }
+    void refreshDetails(){
+        attempted="";catalogQuery="";
+        if(gamePage!=null)gamePage.credentialsChanged();
+    }
+    void refreshSelectedPrices(){
+        if(selected!=null)a.detailPrices(selected);
     }
     void updated(){
         if(searching())queueSearch();
@@ -751,7 +812,7 @@ final class MarketScreen {
         LinearLayout page=page();
         ScrollView scroll=(ScrollView)page.getParent();settingsScroll=scroll;
         int offset=settingsOffset;if(offset>0)scroll.post(()->scroll.scrollTo(0,offset));
-        addText(page,"Account & Settings",24,WHITE,true,0);
+
         LinearLayout profile=panel(page);LinearLayout account=w.row();profile.addView(account);
         String connected=Market.accountName(a.data),name=a.getPreferences(0).getString("nickname","");
         String display=name.isEmpty()?connected:name;
@@ -768,7 +829,7 @@ final class MarketScreen {
             if(counts.getChildCount()>0)countLayout.setMarginStart(w.dp(8));
             counts.addView(count,countLayout);
         }
-        pageAction(profile,"Edit profile",false,()->{
+        settingRow(profile,"Edit profile","",()->{
             EditText input=new EditText(a);input.setSingleLine(true);input.setHint("Display name on this phone");
             input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(40)});
             input.setText(name);input.setSelectAllOnFocus(true);
@@ -776,59 +837,93 @@ final class MarketScreen {
             new AlertDialog.Builder(a).setTitle("Edit profile").setView(form).setNegativeButton("Cancel",null)
                     .setPositiveButton("Save",(d,i)->{a.getPreferences(0).edit().putString("nickname",input.getText().toString().trim()).apply();headerMode="";render(false);}).show();
         });
-        LinearLayout prices=settingsGroup(page,"Connected accounts & sync");
-        addText(prices,a.personal?"Your personal pricing key is active on this phone.":"Your signed-in wishlist checks regional prices across supported stores. Add your own key for ITAD’s full offer list and catalog search.",14,MUTED,false,7);
-        pageAction(prices,a.personal?"Replace personal key":"Add personal API key",false,a::editKey);
-        if(a.personal)pageAction(prices,"Remove personal key",false,()->a.setKey(""));
-        pageAction(prices,"Reconnect IsThereAnyDeal",false,a::permissionDialog);
-        LinearLayout region=settingsGroup(page,"Region, currency & store filters");
-        pageAction(region,PricingRegion.current.name()+"  ·  "+PricingRegion.current.currency,false,this::chooseRegion);
-        addText(region,"ITAD supplies prices in the selected country’s currency. Price alerts and their history are saved per region.",13,MUTED,false,5);
+        LinearLayout region=settingsGroup(page,"Region & store filters");
+        detailRow(region,"Pricing region",PricingRegion.current.name()+" · "+PricingRegion.current.currency,
+                "Prices and alert history follow this region.",WHITE,this::chooseRegion);
         settingSwitch(region,"Hide owned games","Skip games from your Library in discovery feeds","hideOwned",false);
         LinearLayout notify=settingsGroup(page,"Notifications");
-        pageAction(notify,"Wishlist-wide alerts",false,()->AlertEditor.openUniversal(a));
-        pageAction(notify,"Price alerts and notification history",false,()->go("alerts"));
+        settingRow(notify,"Wishlist-wide alerts","",()->AlertEditor.openUniversal(a));
+        settingRow(notify,"Price alerts and notification history","",()->go("alerts"));
         LinearLayout appearance=settingsGroup(page,"Display & motion");
         android.content.SharedPreferences prefs=a.getSharedPreferences("appearance",0);
         AppTheme theme=AppTheme.saved(a);
         String logo=prefs.getString("logo",LOGOS[0]);
-        pageAction(appearance,"Theme  ·  "+theme.label,false,()->appearancePicker(true));
-        pageAction(appearance,"In-app logo  ·  "+logo,false,()->appearancePicker(false));
+        settingRow(appearance,"Theme",theme.label,()->appearancePicker(true));
+        settingRow(appearance,"App icon",logo,()->appearancePicker(false));
         settingSwitch(appearance,"AMOLED black","Use a black background with any accent","blackCanvas","AMOLED".equals(prefs.getString("theme","Midnight")));
         String[] routes={"home","deals","wishlist","library"},labels={"Discover","Deals","Wishlist","Library"};
         int start=Math.max(0,Arrays.asList(routes).indexOf(startupTab()));
-        pageAction(appearance,"Startup tab  ·  "+labels[start],false,()->chooseOption("Startup tab",labels[start],labels,choice->{
+        settingRow(appearance,"Startup tab",labels[start],()->chooseOption("Startup tab",labels[start],labels,choice->{
             prefs.edit().putString("startupTab",routes[Arrays.asList(labels).indexOf(choice)]).apply();render(false);
         }));
         settingSwitch(appearance,"Compact deal rows","Show smaller covers and tighter spacing","compactRows",false);
         settingSwitch(appearance,"Tap feedback","Feel a short vibration when selecting an action","haptics",false);
         settingSwitch(appearance,"Reduce motion","Use simpler transitions","reduceMotion",false);
         settingSwitch(appearance,"High refresh rate","Use the fastest supported display mode","highRefresh",true);
-        pageAction(appearance,"↻ Replay Loading Screen",false,this::showSplash);
-        pageAction(appearance,"Default sorting  ·  "+defaultSort(),false,()->chooseSort("Default sorting",defaultSort(),choice->{
+        detailRow(appearance,"Replay loading screen","PLAY","Preview your theme and app icon.",WHITE,this::showSplash);
+        settingRow(appearance,"Default sorting",defaultSort(),()->chooseSort("Default sorting",defaultSort(),choice->{
             prefs.edit().putString("defaultSort",choice).apply();order=choice;render(false);
         }));
-        LinearLayout sync=settingsGroup(page,"Data & account");
-        settingSwitch(sync,"Cache game images","Save artwork on this device","cacheImages",true);
-        pageAction(sync,"Clear image cache",false,a::clearArtwork);
+        LinearLayout sync=settingsGroup(page,"Storage & sync");
+        settingSwitch(sync,"Cache game images","Keep artwork on this device","cacheImages",true);
+        detailRow(sync,"Clear image cache","","Remove downloaded game artwork.",WHITE,a::clearArtwork);
         long saved=a.data.optLong("saved");
-        addText(sync,saved==0?"Waiting for first sync":"Last sync  ·  "+DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT).format(new Date(saved*1000)),13,MUTED,false,6);
-        refreshAction=pageAction(sync,"Refresh now",false,a::manualRefresh);
-        pageAction(page,"View ignored games",false,()->go("ignored"));
-        pageAction(page,"Sign out",false,()->new AlertDialog.Builder(a).setTitle("Sign out on this phone?")
+        String lastSync=saved==0?"Waiting for first sync":"Last sync · "+DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT).format(new Date(saved*1000));
+        refreshAction=detailRow(sync,"Refresh now","",lastSync,WHITE,a::manualRefresh);
+        settingRow(region,"View ignored games","",()->go("ignored"));
+
+        LinearLayout prices=settingsGroup(page,"Account & pricing key");
+        detailRow(prices,"Reconnect IsThereAnyDeal","","Reconnect your linked account.",WHITE,a::permissionDialog);
+        detailRow(prices,a.personal?"Replace personal key":"Add personal API key",a.personal?"Active":"",
+                a.personal?"Personal pricing key saved on this device.":"Unlock catalog search and store prices.",WHITE,a::editKey);
+        LinearLayout danger=w.column();
+        GradientDrawable dangerFill=w.shape(0xff190e12,14);dangerFill.setStroke(w.dp(1),0xff542030);
+        danger.setBackground(dangerFill);w.pad(danger,6,2,6,2);
+        LinearLayout.LayoutParams gap=new LinearLayout.LayoutParams(-1,-2);gap.topMargin=w.dp(10);page.addView(danger,gap);
+        int warning=0xffff7989;
+        if(a.personal)detailRow(danger,"Remove personal key","","",warning,()->a.setKey(""));
+        detailRow(danger,"Sign out","","",warning,()->new AlertDialog.Builder(a).setTitle("Sign out on this phone?")
                 .setMessage("Your local alerts, notification history, cached lists and personal key will be cleared from this phone.")
                 .setNegativeButton("Cancel",null).setPositiveButton("Sign out",(d,i)->a.signOut()).show());
     }
+    private TextView settingRow(LinearLayout group,String label,String value,Runnable click){
+        return detailRow(group,label,value,"",WHITE,click);
+    }
+    private void rowDivider(LinearLayout group){
+        if(group.getChildCount()==0)return;
+        View divider=new View(a);divider.setBackgroundColor(LINE);
+        group.addView(divider,new LinearLayout.LayoutParams(-1,w.dp(1)));
+    }
+    private TextView detailRow(LinearLayout group,String label,String value,String detail,int color,Runnable click){
+        rowDivider(group);
+        LinearLayout row=w.row();row.setMinimumHeight(w.dp(48));w.pad(row,10,8,8,8);
+        LinearLayout copy=w.column();row.addView(copy,w.flex());
+        TextView caption=w.text(label,14,color,true);copy.addView(caption);
+        if(!detail.isEmpty())addText(copy,detail,12,MUTED,false,3);
+        if(!value.isEmpty()){
+            TextView trailing=w.text(value,12,LILAC,true);w.pad(trailing,8,0,2,0);
+            trailing.setMaxWidth(a.getResources().getDisplayMetrics().widthPixels/3);
+            row.addView(trailing);
+        }
+        row.addView(new Icon(a,"next",color==WHITE?MUTED:color),square(14));group.addView(row);
+        String description=value.isEmpty()?label:label+", "+value;
+        row.setContentDescription(detail.isEmpty()?description:description+". "+detail);
+        w.action(row,w.shape(Color.TRANSPARENT,8),click);
+        return caption;
+    }
     private LinearLayout settingsGroup(LinearLayout page,String label){
         TextView heading=w.text(label.toUpperCase(Locale.ROOT),11,MUTED,true);heading.setLetterSpacing(.1f);
-        w.pad(heading,2,20,0,0);page.addView(heading);return panel(page);
+        w.pad(heading,2,14,0,4);page.addView(heading);LinearLayout group=w.column();w.pad(group,6,2,6,2);group.setBackground(w.shape(PANEL,14));page.addView(group);return group;
     }
     private void settingSwitch(LinearLayout parent,String label,String detail,String key,boolean defaultValue){
         android.content.SharedPreferences prefs=a.getSharedPreferences("appearance",0);
-        LinearLayout row=w.row();w.pad(row,0,10,0,4);parent.addView(row);
+        rowDivider(parent);LinearLayout row=w.row();w.pad(row,10,6,8,6);parent.addView(row);
         LinearLayout copy=w.column();row.addView(copy,w.flex());
-        addText(copy,label,15,WHITE,true,0);addText(copy,detail,12,MUTED,false,3);
+        addText(copy,label,14,WHITE,true,0);addText(copy,detail,12,MUTED,false,3);
         Switch toggle=new Switch(a);toggle.setContentDescription(label);toggle.setMinHeight(w.dp(48));
+        toggle.setThumbTintList(android.content.res.ColorStateList.valueOf(WHITE));
+        toggle.setTrackTintList(new android.content.res.ColorStateList(new int[][]{
+                new int[]{android.R.attr.state_checked},new int[]{}},new int[]{ACCENT,LINE}));
         toggle.setChecked(prefs.getBoolean(key,defaultValue));row.addView(toggle);
         toggle.setOnCheckedChangeListener((view,checked)->{
             prefs.edit().putBoolean(key,checked).apply();

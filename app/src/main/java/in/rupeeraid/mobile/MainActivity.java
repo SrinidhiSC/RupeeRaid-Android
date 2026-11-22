@@ -31,8 +31,10 @@ public final class MainActivity extends Activity {
     private Intent deferred;
     JSONObject data=new JSONObject(),alertState=new JSONObject();
     String note="";
-    boolean signedIn,personal,busy,ready,firstReload;
+    boolean signedIn,personal,busy,ready;
+    boolean manualSync;
     long backoff;
+    private long lastAutoAttempt;
     private final Runnable tick=new Runnable(){
         public void run(){screen.clock();handler.postDelayed(this,1000);}
     };
@@ -42,6 +44,7 @@ public final class MainActivity extends Activity {
         boolean black=appearance.getBoolean("blackCanvas","AMOLED".equals(appearance.getString("theme","Midnight")));
         setTheme(AppTheme.saved(this).style);
         super.onCreate(saved);
+        LauncherIcons.select(this,appearance.getString("logo",MarketWidgets.LOGOS[0]));
         MarketWidgets.applyPalette(this,black);
         getWindow().setStatusBarColor(MarketWidgets.BAR);
         getWindow().setNavigationBarColor(MarketWidgets.BAR);
@@ -62,11 +65,12 @@ public final class MainActivity extends Activity {
             runOnUiThread(()->{
                 if(isDestroyed())return;
                 data=snapshot;alertState=alerts;signedIn=session;personal=key;ready=true;
-                firstReload=getPreferences(0).getBoolean("firstReload",false);
                 backoff=getPreferences(0).getLong("backoff",0);
                 screen.render(false);
-                if(!handle(getIntent()) && signedIn && (remaining()==0 || data.optInt("schema")!=2)) refresh();
-                else if(signedIn && screen.showingLibrary())libraryPrices();
+                if(!handle(getIntent()) && signedIn){
+                    refreshIfExpired();
+                    if(screen.showingLibrary())libraryPrices();
+                }
             });
         });
     }
@@ -84,14 +88,14 @@ public final class MainActivity extends Activity {
         params.preferredRefreshRate=highest;getWindow().setAttributes(params);
     }
     @Override protected void onNewIntent(Intent intent) {super.onNewIntent(intent);setIntent(intent);if(ready)handle(intent);}
-    @Override protected void onStart() {super.onStart();screen.resumeSearch();handler.post(tick);if(ready && signedIn)reloadAlerts();}
+    @Override protected void onStart() {super.onStart();screen.resumeSearch();handler.post(tick);if(ready && signedIn){reloadAlerts();refreshIfExpired();}}
     @Override protected void onStop() {screen.pauseSearch();handler.removeCallbacks(tick);super.onStop();}
     @Override protected void onDestroy(){screen.dispose();super.onDestroy();}
     @Override protected void onSaveInstanceState(Bundle b){super.onSaveInstanceState(b);screen.save(b);}
     @Override public void onBackPressed(){if(!screen.back())super.onBackPressed();}
 
     static long now(){return System.currentTimeMillis()/1000;}
-    long remaining(){return Math.max(0,Math.max(backoff,personal || data.optInt("schema")!=2 ? 0:data.optLong("saved")+300)-now());}
+    long remaining(){return Math.max(0,backoff-now());}
     static boolean providerPage(Uri uri){
         String host=uri.getHost();
         if(host==null)return false;
@@ -112,11 +116,11 @@ public final class MainActivity extends Activity {
                 JSONObject result=work.execute();
                 runOnUiThread(()->{
                     if(isDestroyed())return;
-                    busy=false;done.accept(result);screen.status();resumeCallback();
+                    busy=false;manualSync=false;done.accept(result);screen.status();resumeCallback();
                 });
             }catch(Exception e){runOnUiThread(()->{
                 if(isDestroyed())return;
-                busy=false;
+                busy=false;manualSync=false;
                 if(e instanceof MobileApi.Failure){
                     MobileApi.Failure failure=(MobileApi.Failure)e;
                     note=failure.getMessage();
@@ -131,19 +135,43 @@ public final class MainActivity extends Activity {
     }
     private void pause(int seconds){backoff=now()+seconds;getPreferences(0).edit().putLong("backoff",backoff).apply();}
     private void resumeCallback(){if(!busy && deferred!=null){Intent next=deferred;deferred=null;callback(next);}}
-    void manualRefresh(){
-        if(busy)return;
-        if(firstReload && backoff<=now()){
-            firstReload=false;getPreferences(0).edit().putBoolean("firstReload",false).apply();
-            if(remaining()>0){notice("Showing the prices saved at sign-in.");return;}
-        }
-        if(remaining()>0){notice("Refresh available in "+remaining()+" seconds.");return;}
+    void refreshIfExpired(){
+        if(!signedIn || busy || remaining()>0 || now()-lastAutoAttempt<60)return;
+        if(data.optInt("schema")==2 && MobileApi.fresh(data.optLong("saved"),now()) &&
+                Market.text(data,"warning").isEmpty())return;
+        lastAutoAttempt=now();
         refresh();
     }
-    private void refresh(){
-        if(!signedIn || remaining()>0)return;
+    void manualRefresh(){
+        if(busy)return;
+        if(remaining()>0){notice("Refresh available in "+remaining()+" seconds.");return;}
+        refresh(true);
+    }
+    private void refresh(){ refresh(false); }
+    private void refresh(boolean force){
+        if(!signedIn || busy || remaining()>0)return;
+        manualSync=force;
+        final JSONObject previous=data;
         run(()->{
+            if(force)api.beginRefresh();
             JSONObject snapshot=api.dashboard();
+            // Keep the prior quotes for editions still owned when a dashboard refresh only returns membership.
+            JSONObject cachedLibrary=new JSONObject();
+            for(JSONObject game:Market.objects(previous.optJSONArray("library")))
+                cachedLibrary.put(game.getString("id"),game.optJSONArray("offers"));
+            for(JSONObject game:Market.objects(snapshot.optJSONArray("library"))){
+                JSONArray prior=cachedLibrary.optJSONArray(game.getString("id"));
+                if(prior!=null && prior.length()>0 && game.optJSONArray("offers").length()==0)game.put("offers",prior);
+            }
+            snapshot.put("librarySaved",previous.optLong("librarySaved"));
+            if(force && Market.text(snapshot,"warning").isEmpty()) {
+                try {
+                    snapshot.put("library",api.library(snapshot.getJSONArray("library"))).put("librarySaved",now());
+                } catch (java.io.IOException unavailable) {
+                    snapshot.put("warning","Library prices could not be updated.");
+                    if(unavailable instanceof MobileApi.Failure)snapshot.put("retryAfter",((MobileApi.Failure)unavailable).retry);
+                }
+            }
             vault.write("snapshot",snapshot.toString());
             PriceAlerts alerts=new PriceAlerts(vault);
             JSONObject universal=alerts.document.optJSONObject("universal");
@@ -164,12 +192,13 @@ public final class MainActivity extends Activity {
         },snapshot->{
             data=snapshot;personal=data.optBoolean("personal");note=Market.text(data,"warning");
             int retry=data.optInt("retryAfter");if(retry>0)pause(retry);
-            screen.updated();reloadAlerts();
+            if(force)screen.refreshDetails();
+            screen.updated();if(force)screen.refreshSelectedPrices();reloadAlerts();
         });
     }
     void libraryPrices(){
         JSONArray collection=data.optJSONArray("library");
-        if(busy || backoff>now() || collection==null || collection.length()==0 || data.optLong("librarySaved")+300>now())return;
+        if(busy || backoff>now() || collection==null || collection.length()==0 || MobileApi.fresh(data.optLong("librarySaved"),now()))return;
         final JSONObject snapshot=data;
         run(()->{
             JSONObject updated=new JSONObject(snapshot.toString()).put("library",api.library(collection)).put("librarySaved",now());
@@ -430,7 +459,7 @@ public final class MainActivity extends Activity {
             if(code==null || code.isEmpty()){notice("Sign-in was cancelled.");return true;}
             boolean reconnect=signedIn;
             run(()->{api.login(code,pending.getString("verifier"),pending.optString("scope",MobileApi.OLD_SCOPE));return new JSONObject();},result->{
-                signedIn=true;firstReload=true;getPreferences(0).edit().putBoolean("firstReload",true).apply();
+                signedIn=true;
                 if(reconnect){notice("IsThereAnyDeal reconnected. You can edit your lists.");screen.render(false);}
                 else{screen.go("home");refresh();}
             });
@@ -442,8 +471,8 @@ public final class MainActivity extends Activity {
         vault.clearRegionalData();getPreferences(0).edit().remove("nickname").apply();AlertJob.schedule(this,false);
     }
     private void resetDisplay(boolean connected){
-        getSystemService(android.app.NotificationManager.class).cancelAll();signedIn=connected;personal=false;firstReload=connected;
-        data=new JSONObject();alertState=new JSONObject();getPreferences(0).edit().putBoolean("firstReload",connected).apply();screen.reset();screen.render(false);
+        getSystemService(android.app.NotificationManager.class).cancelAll();signedIn=connected;personal=false;
+        lastAutoAttempt=0;data=new JSONObject();alertState=new JSONObject();screen.reset();screen.render(false);
     }
     private void switchSessionDialog(){
         new AlertDialog.Builder(this).setTitle("Start a fresh account session?")

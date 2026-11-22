@@ -25,6 +25,12 @@ final class MobileApi {
     private static final String API = "https://api.isthereanydeal.com";
     private static final String TOKEN = "https://isthereanydeal.com/oauth/token/";
     private static final int WINDOW = 300, BATCH = 200;
+    static final int CACHE_SECONDS = 3600;
+    void beginRefresh() throws Exception { store.write("cacheGeneration",UUID.randomUUID().toString()); }
+    String generation() { return store.read("cacheGeneration"); }
+    static boolean fresh(long saved,long time) {
+        return saved>0 && time>=saved && time-saved<CACHE_SECONDS;
+    }
     interface Storage {
         String read(String name);
         void write(String name,String value) throws Exception;
@@ -280,8 +286,9 @@ final class MobileApi {
         return snapshot;
     }
     private void quotes(Collection<String> ids,String key,JSONObject book,long ttl) throws Exception {
+        String generation=generation();
         ArrayList<String> missing=new ArrayList<>();
-        for(String id:ids){JSONObject row=book.optJSONObject(id);if(row==null || row.optLong("saved")+ttl<=now())missing.add(id);}
+        for(String id:ids){JSONObject row=book.optJSONObject(id);if(row==null || !generation.equals(row.optString("generation")) || row.optLong("saved")+ttl<=now())missing.add(id);}
         for(int offset=0;offset<missing.size();offset+=BATCH) {
             List<String> batch=missing.subList(offset,Math.min(offset+BATCH,missing.size()));
             JSONArray prices=(JSONArray)pricing("/games/prices/v3?country="+PricingRegion.current.country+"&vouchers=true","POST",key,new JSONArray(batch).toString());
@@ -297,7 +304,7 @@ final class MobileApi {
                 JSONObject result=byGame.get(id);
                 // ITAD omits editions without current offers from successful batches.
                 if(result==null)result=new JSONObject().put("items",new JSONArray());
-                book.put(id,result.put("saved",now()));
+                book.put(id,result.put("saved",now()).put("generation",generation));
             }
             store.write("quotes",book.toString());
         }
@@ -340,17 +347,18 @@ final class MobileApi {
 
     // Each page has one best offer per game. A separate shop filter preserves alternatives
     // and lets logged-in users compare eligible stores without distributing a shared key.
-    private JSONObject listPrices(JSONArray games,boolean wishlist) throws Exception {
+    private JSONObject listPrices(JSONArray games,boolean wishlist,int ttl) throws Exception {
         Set<String> wanted = new TreeSet<>();
         for (JSONObject g : Market.objects(games)) wanted.add(g.getString("id"));
         if (wanted.isEmpty()) return new JSONObject();
         String ids = String.join(",",wanted);
         String cacheName = wishlist ? "waitPrices" : "collectionPrices";
         JSONObject cache = saved(cacheName);
+        String generation=generation();
         long completed = cache.optLong("completed");
-        if (!ids.equals(cache.optString("ids")) || (completed>0 && completed+WINDOW<=now())
+        if (!ids.equals(cache.optString("ids")) || !generation.equals(cache.optString("generation")) || (completed>0 && completed+ttl<=now())
                 || cache.optLong("started")+86400<=now()) {
-            cache = new JSONObject().put("ids",ids).put("started",now()).put("offers",new JSONObject()).put("pages",new JSONObject());
+            cache = new JSONObject().put("generation",generation).put("ids",ids).put("started",now()).put("offers",new JSONObject()).put("pages",new JSONObject());
         }
         JSONObject offers = cache.getJSONObject("offers"), pages = cache.getJSONObject("pages");
         if (cache.has("completed")) return offers;
@@ -382,7 +390,7 @@ final class MobileApi {
     }
 
     JSONArray library(JSONArray collection) throws Exception {
-        return games(collection,listPrices(collection,false));
+        return games(collection,listPrices(collection,false,CACHE_SECONDS));
     }
 
     JSONObject detailPrices(JSONObject game) throws Exception {
@@ -390,14 +398,19 @@ final class MobileApi {
         if (key.isEmpty()) return game;
         String id = game.getString("id");
         JSONObject book = saved("quotes");
-        quotes(Collections.singleton(id),key,book,WINDOW);
+        try {
+            quotes(Collections.singleton(id),key,book,CACHE_SECONDS);
+        } catch (IOException unavailable) {
+            if(book.optJSONObject(id)==null)throw unavailable;
+            game=new JSONObject(game.toString()).put("offerWarning","Showing saved offers. Couldn’t update prices.");
+        }
         JSONObject quote=book.getJSONObject(id);
         return new JSONObject(game.toString()).put("offers",consistentLows(quote.getJSONArray("items"))).put("periods",quote.optJSONObject("periods"));
     }
 
     private JSONObject accountLists() throws Exception {
         JSONObject lists = saved("lists");
-        if (lists.has("best") && lists.optLong("saved")+WINDOW > now()) return lists;
+        if (lists.has("best") && generation().equals(lists.optString("generation")) && fresh(lists.optLong("saved"),now())) return lists;
         JSONObject fresh = new JSONObject();
         JSONObject profile = (JSONObject)account("/user/info/v2","GET",null);
         fresh.put("name",Market.text(profile,"username"));
@@ -405,7 +418,7 @@ final class MobileApi {
         fresh.put("library",account("/collection/games/v1","GET",null));
         fresh.put("ignored",account("/ignored/games/v1","GET",null));
         for (String section : Arrays.asList("deals","trending","lows","best","free")) fresh.put(section,discovery(section));
-        fresh.put("saved",now());
+        fresh.put("saved",now()).put("generation",generation());
         store.write("lists",fresh.toString());
         return fresh;
     }
@@ -421,10 +434,10 @@ final class MobileApi {
         int retryAfter = 0;
         try {
             if (key.isEmpty()) {
-                amounts = listPrices(lists.getJSONArray("wishlist"),true);
+                amounts = listPrices(lists.getJSONArray("wishlist"),true,CACHE_SECONDS);
             } else {
                 JSONObject book = saved("quotes");
-                quotes(titles.keySet(),key,book,20);
+                quotes(titles.keySet(),key,book,CACHE_SECONDS);
                 for (String id : titles.keySet()) amounts.put(id,book.getJSONObject(id).getJSONArray("items"));
             }
         } catch (IOException ex) {
@@ -466,9 +479,10 @@ final class MobileApi {
         JSONObject cached = saved("searchCache");
         String term=TitleIndex.words(query);
         if(term.length()<2)return new JSONArray();
+        String generation=generation();
         JSONArray history=cached.optJSONArray("entries"),recent=new JSONArray();
         for(JSONObject entry:Market.objects(history)){
-            if(entry.optLong("saved")+WINDOW<=now())continue;
+            if(!fresh(entry.optLong("saved"),now()) || !cached.optString("generation").equals(generation))continue;
             if(term.equals(entry.optString("query")))return entry.getJSONArray("results");
             recent.put(entry);
         }
@@ -476,7 +490,7 @@ final class MobileApi {
         JSONArray result=pcSearchResults(priceCatalog(found,key),key);
         while(recent.length()>=16)recent.remove(0);
         recent.put(new JSONObject().put("query",term).put("saved",now()).put("results",result));
-        store.write("searchCache",new JSONObject().put("entries",recent).toString());
+        store.write("searchCache",new JSONObject().put("generation",generation).put("entries",recent).toString());
         return result;
     }
 
@@ -514,7 +528,7 @@ final class MobileApi {
         Map<String,JSONObject> titles=new LinkedHashMap<>();
         collect(titles,found);
         JSONObject book=saved("quotes"),prices=new JSONObject();
-        quotes(titles.keySet(),key,book,WINDOW);
+        quotes(titles.keySet(),key,book,CACHE_SECONDS);
         for(String id:titles.keySet())prices.put(id,book.getJSONObject(id).getJSONArray("items"));
         return games(found,prices);
     }
@@ -558,7 +572,7 @@ final class MobileApi {
             return result;
         }
         if(wishlist==null)wishlist=(JSONArray)account("/waitlist/games/v1","GET",null);
-        JSONObject all=listPrices(wishlist,true);
+        JSONObject all=listPrices(wishlist,true,WINDOW);
         for(String id:ids)result.put(id,consistentLows(all.optJSONArray(id)));
         return result;
     }
@@ -566,11 +580,11 @@ final class MobileApi {
         UUID.fromString(id);
         if(!permits("notes_read"))throw new Consent("notes_read notes_write");
         JSONObject cache=saved("gameNotes");
-        if(cache.optLong("saved")+WINDOW<=now()){
+        if(!fresh(cache.optLong("saved"),now()) || !generation().equals(cache.optString("generation"))){
             try{
                 JSONArray notes=(JSONArray)account("/user/notes/v1","GET",null);JSONObject entries=new JSONObject();
                 for(JSONObject row:Market.objects(notes))entries.put(row.getString("gid"),row.getString("note"));
-                cache=new JSONObject().put("saved",now()).put("entries",entries);store.write("gameNotes",cache.toString());
+                cache=new JSONObject().put("generation",generation()).put("saved",now()).put("entries",entries);store.write("gameNotes",cache.toString());
             }catch(IOException e){
                 if(!cache.has("entries"))throw e;
                 return new JSONObject().put("note",cache.getJSONObject("entries").optString(id)).put("cached",true);

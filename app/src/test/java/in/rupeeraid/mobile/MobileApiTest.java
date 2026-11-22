@@ -73,6 +73,32 @@ public class MobileApiTest {
         api.dashboard();assertEquals(16,calls.size());api.changeWaitlist(ID,true);assertFalse(memory.containsKey("lists"));
         api.setKey("");assertTrue(memory.read("personalKey").isEmpty());
     }
+    @Test public void detailsSurviveReopenAndManualSyncKeepsOfflineFallback() throws Exception {
+        Memory disk=new Memory();
+        disk.write("personalKey","test");
+        int[] calls={0};
+        MobileApi.Transport transport=(url,method,header,key,format,body)->{
+            if(++calls[0]==2)throw new java.io.IOException("offline");
+            return new JSONObject().put("releaseDate","2012-11-28");
+        };
+        MobileApi api=new MobileApi(disk,"app",transport);
+        JSONObject first=new GameCatalog(api,disk).load(game(),"about");
+        assertEquals(1,calls[0]);
+        long saved=first.getLong("saved");
+        assertTrue(MobileApi.fresh(saved,saved+3599));
+        assertFalse(MobileApi.fresh(saved,saved+3600));
+        MobileApi reopened=new MobileApi(disk,"app",transport);
+        GameCatalog catalog=new GameCatalog(reopened,disk);
+        catalog.load(game(),"about");
+        assertEquals(1,calls[0]);
+        reopened.beginRefresh();
+        JSONObject stale=catalog.load(game(),"about");
+        assertTrue(stale.has("message"));
+        assertEquals("2012-11-28",stale.getJSONObject("data").getString("releaseDate"));
+        assertFalse(catalog.load(game(),"about").has("message"));
+        catalog.load(game(),"about");
+        assertEquals(3,calls[0]);
+    }
     @Test public void localBudgetAndProviderBackoffSurviveReopen() throws Exception {
         Memory m=new Memory();JSONArray calls=new JSONArray();long now=System.currentTimeMillis()/1000;
         for(int i=0;i<100;i++)calls.put(now);

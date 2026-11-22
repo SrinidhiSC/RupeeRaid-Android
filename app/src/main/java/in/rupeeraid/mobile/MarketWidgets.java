@@ -48,7 +48,8 @@ final class MarketWidgets {
         }else{
             int[] marks={R.drawable.logo_stealth_shield,R.drawable.logo_pixel_loot,R.drawable.logo_neon_mono,R.drawable.logo_amoled_pitch};
             image.setImageResource(marks[index-1]);
-            GradientDrawable bg=shape(index==4?android.graphics.Color.BLACK:RAISED,Math.round(size*.3f));
+            int[] backgrounds={R.color.launcher_stealth_shield_bg,R.color.launcher_pixel_loot_bg,R.color.launcher_neon_mono_bg,R.color.launcher_amoled_pitch_bg};
+            GradientDrawable bg=shape(context.getColor(backgrounds[index-1]),Math.round(size*.3f));
             bg.setStroke(dp(1),index==4?LINE:ACCENT);image.setBackground(bg);
             int inset=dp(size*.18f);image.setPadding(inset,inset,inset,inset);
         }
@@ -153,6 +154,27 @@ final class MarketWidgets {
         if(row.getChildCount()>0)lp.setMarginStart(dp(4));
         row.addView(badge,lp);
     }
+    void heroArt(ImageView view,String url,boolean portrait,Runnable settled) {
+        if(url.equals(view.getTag()))return;
+        view.setTag(url);
+        // A landscape-only edition is letterboxed inside the portrait slot.
+        view.setScaleType(portrait?ImageView.ScaleType.CENTER_CROP:ImageView.ScaleType.FIT_CENTER);
+        if(url.isEmpty()){
+            view.setImageResource(R.drawable.art_placeholder);
+            settled.run();return;
+        }
+        RequestBuilder<Drawable> request=artwork(view,url).dontAnimate().error(R.drawable.art_placeholder);
+        (portrait?request.centerCrop():request.fitCenter()).listener(new com.bumptech.glide.request.RequestListener<Drawable>() {
+            public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException error,Object model,
+                    com.bumptech.glide.request.target.Target<Drawable> target,boolean first){
+                settled.run();return false;
+            }
+            public boolean onResourceReady(Drawable image,Object model,com.bumptech.glide.request.target.Target<Drawable> target,
+                    com.bumptech.glide.load.DataSource source,boolean first){
+                settled.run();return false;
+            }
+        }).into(view);
+    }
     void rowArt(ImageView view,String url,String thumbnail){
         if(url.equals(view.getTag()))return;
         view.setTag(url);
@@ -249,6 +271,8 @@ final class MarketWidgets {
                 case "deals": d="M3 4h9l9 9-8 8-10-10z M7.7 8h.2";break;
                 case "wishlist": d="M6 3.5h12v17l-6-4-6 4z";break;
                 case "library": d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20 M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z";break;
+                case "grid": d="M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z";break;
+                case "list": d="M3 5h2 M9 5h12 M3 12h2 M9 12h12 M3 19h2 M9 19h12";break;
                 case "menu": d="M3 6h18 M3 12h13 M3 18h18";break;
                 case "account": d="M21 12a9 9 0 1 1-18 0a9 9 0 1 1 18 0 M15 10a3 3 0 1 1-6 0a3 3 0 1 1 6 0 M5.4 18c2.7-4.2 10.5-4.2 13.2 0";break;
                 case "search": d="M16.5 10a6.5 6.5 0 1 1-13 0a6.5 6.5 0 1 1 13 0 M15 15l6 6";break;

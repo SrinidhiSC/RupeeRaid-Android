@@ -1,0 +1,4 @@
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/launcher_neon_mono_bg"/>
+    <foreground><inset android:inset="20%" android:drawable="@drawable/logo_neon_mono"/></foreground>
+</adaptive-icon>
