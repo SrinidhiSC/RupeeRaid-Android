@@ -1,0 +1,119 @@
+<resources>
+    <attr name="raidPanel" format="color"/>
+    <attr name="raidRaised" format="color"/>
+    <attr name="raidLine" format="color"/>
+    <attr name="raidBright" format="color"/>
+    <attr name="raidSecondary" format="color"/>
+
+    <style name="RaidTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:colorAccent">#10B981</item>
+        <item name="android:windowBackground">#08090C</item>
+        <item name="android:statusBarColor">#08090C</item>
+        <item name="android:navigationBarColor">#08090C</item>
+        <item name="raidPanel">#12141A</item>
+        <item name="raidRaised">#191C24</item>
+        <item name="raidLine">#292C33</item>
+        <item name="raidBright">#34D399</item>
+        <item name="raidSecondary">#06B6D4</item>
+        <item name="android:alertDialogTheme">@style/EmeraldDialog</item>
+    </style>
+
+    <style name="RaidAmethyst" parent="@style/RaidTheme">
+        <item name="android:colorAccent">#A855F7</item>
+        <item name="android:windowBackground">#090710</item>
+        <item name="android:statusBarColor">#090710</item>
+        <item name="android:navigationBarColor">#090710</item>
+        <item name="raidPanel">#13101E</item>
+        <item name="raidRaised">#1C172B</item>
+        <item name="raidLine">#261F3A</item>
+        <item name="raidBright">#C084FC</item>
+        <item name="raidSecondary">#EC4899</item>
+        <item name="android:alertDialogTheme">@style/AmethystDialog</item>
+    </style>
+
+    <style name="RaidEmber" parent="@style/RaidTheme">
+        <item name="android:colorAccent">#F43F5E</item>
+        <item name="android:windowBackground">#0B0809</item>
+        <item name="android:statusBarColor">#0B0809</item>
+        <item name="android:navigationBarColor">#0B0809</item>
+        <item name="raidPanel">#161012</item>
+        <item name="raidRaised">#21171A</item>
+        <item name="raidLine">#302025</item>
+        <item name="raidBright">#FB7185</item>
+        <item name="raidSecondary">#F97316</item>
+        <item name="android:alertDialogTheme">@style/EmberDialog</item>
+    </style>
+
+    <style name="RaidCobalt" parent="@style/RaidTheme">
+        <item name="android:colorAccent">#3B82F6</item>
+        <item name="android:windowBackground">#060A12</item>
+        <item name="android:statusBarColor">#060A12</item>
+        <item name="android:navigationBarColor">#060A12</item>
+        <item name="raidPanel">#0F1624</item>
+        <item name="raidRaised">#162033</item>
+        <item name="raidLine">#1F2D46</item>
+        <item name="raidBright">#60A5FA</item>
+        <item name="raidSecondary">#38BDF8</item>
+        <item name="android:alertDialogTheme">@style/CobaltDialog</item>
+    </style>
+
+    <style name="RaidGold" parent="@style/RaidTheme">
+        <item name="android:colorAccent">#F59E0B</item>
+        <item name="android:windowBackground">#09090B</item>
+        <item name="android:statusBarColor">#09090B</item>
+        <item name="android:navigationBarColor">#09090B</item>
+        <item name="raidPanel">#141316</item>
+        <item name="raidRaised">#1E1C21</item>
+        <item name="raidLine">#2C2830</item>
+        <item name="raidBright">#FBBF24</item>
+        <item name="raidSecondary">#FDE047</item>
+        <item name="android:alertDialogTheme">@style/GoldDialog</item>
+    </style>
+
+    <style name="RaidSlate" parent="@style/RaidTheme">
+        <item name="android:colorAccent">#10B981</item>
+        <item name="android:windowBackground">#0E1117</item>
+        <item name="android:statusBarColor">#0E1117</item>
+        <item name="android:navigationBarColor">#0E1117</item>
+        <item name="raidPanel">#161B24</item>
+        <item name="raidRaised">#1E2430</item>
+        <item name="raidLine">#272E3D</item>
+        <item name="raidBright">#34D399</item>
+        <item name="raidSecondary">#06B6D4</item>
+        <item name="android:alertDialogTheme">@style/SlateDialog</item>
+    </style>
+
+    <style name="RaidDialog" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/raid_dialog</item>
+    </style>
+    <style name="EmeraldDialog" parent="@style/RaidDialog">
+        <item name="android:colorAccent">#10B981</item>
+        <item name="android:colorBackgroundFloating">#12141A</item>
+        <item name="raidLine">#292C33</item>
+    </style>
+    <style name="AmethystDialog" parent="@style/RaidDialog">
+        <item name="android:colorAccent">#A855F7</item>
+        <item name="android:colorBackgroundFloating">#13101E</item>
+        <item name="raidLine">#261F3A</item>
+    </style>
+    <style name="EmberDialog" parent="@style/RaidDialog">
+        <item name="android:colorAccent">#F43F5E</item>
+        <item name="android:colorBackgroundFloating">#161012</item>
+        <item name="raidLine">#302025</item>
+    </style>
+    <style name="CobaltDialog" parent="@style/RaidDialog">
+        <item name="android:colorAccent">#3B82F6</item>
+        <item name="android:colorBackgroundFloating">#0F1624</item>
+        <item name="raidLine">#1F2D46</item>
+    </style>
+    <style name="GoldDialog" parent="@style/RaidDialog">
+        <item name="android:colorAccent">#F59E0B</item>
+        <item name="android:colorBackgroundFloating">#141316</item>
+        <item name="raidLine">#2C2830</item>
+    </style>
+    <style name="SlateDialog" parent="@style/RaidDialog">
+        <item name="android:colorAccent">#10B981</item>
+        <item name="android:colorBackgroundFloating">#161B24</item>
+        <item name="raidLine">#272E3D</item>
+    </style>
+</resources>
