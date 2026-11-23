@@ -262,10 +262,13 @@ final class MarketWidgets {
             super(c);
             String d;
             switch(name) {
+                case "heart-on":
                 case "heart":d="M12 20C10 18 3 14 3 8a4.5 4.5 0 0 1 9-1 4.5 4.5 0 0 1 9 1c0 6-7 10-9 12z";break;
                 case "bell-on":d="M4 17l2-3V9a6 6 0 0 1 12 0v5l2 3z M9.8 19h4.4a2.3 2.3 0 0 1-4.4 0z";break;
                 case "bell":d="M4 17l2-3V9a6 6 0 0 1 12 0v5l2 3z M10 20q2 3 4 0";break;
-                case "own":d="M5 3h14q2 0 2 2v14q0 2-2 2H5q-2 0-2-2V5q0-2 2-2z M7 12l3 3 7-7";break;
+                case "own":d="M5 3h14q2 0 2 2v14q0 2-2 2H5q-2 0-2-2V5q0-2 2-2z";break;
+                case "own-on":d="M5 3h14q2 0 2 2v14q0 2-2 2H5q-2 0-2-2V5q0-2 2-2z M6 12l1.5-1.5 3 3 6-6L18 9l-7.5 7.5z";break;
+                case "ignore-on":d="M21 12a9 9 0 1 1-18 0a9 9 0 1 1 18 0z M6.5 8l1.5-1.5 9.5 9.5-1.5 1.5z";break;
                 case "ignore":d="M21 12a9 9 0 1 1-18 0a9 9 0 1 1 18 0 M6 6l12 12";break;
                 case "home": d="M3 10.5L12 3l9 7.5V21h-6v-7H9v7H3z";break;
                 case "deals": d="M3 4h9l9 9-8 8-10-10z M7.7 8h.2";break;
@@ -289,7 +292,9 @@ final class MarketWidgets {
                 default: d="M4 12h16";
             }
             path=PathParser.createPathFromPathData(d);
-            paint.setStyle(name.equals("bell-on")?Paint.Style.FILL:Paint.Style.STROKE);paint.setStrokeWidth(1.8f);paint.setStrokeCap(Paint.Cap.ROUND);
+            boolean filled=name.endsWith("-on");
+            if(filled)path.setFillType(Path.FillType.EVEN_ODD);
+            paint.setStyle(filled?Paint.Style.FILL:Paint.Style.STROKE);paint.setStrokeWidth(1.8f);paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setStrokeJoin(Paint.Join.ROUND);paint.setColor(color);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         }
         @Override protected void onDraw(Canvas canvas) {

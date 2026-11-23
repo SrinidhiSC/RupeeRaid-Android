@@ -64,13 +64,14 @@ final class GamePage {
         }
         LinearLayout actions=w.row();w.pad(actions,0,13,0,8);page.addView(actions);
         boolean wished=member("wishlist"),owned=member("library"),ignored=member("ignored");
-        action(actions,"heart",wished?"Wishlisted":"Wishlist",wished,()->change("wishlist",!wished));
-        action(actions,"bell",a.gameRule(id)==null?"Notify":"Alert on",a.gameRule(id)!=null,()->{
+        boolean notifying=a.gameRule(id)!=null;
+        action(actions,wished?"heart-on":"heart",wished?"Wishlisted":"Wishlist",wished,()->change("wishlist",!wished));
+        action(actions,notifying?"bell-on":"bell",notifying?"Alert on":"Notify",notifying,()->{
             if(wished)screen.wishlistBell(id);
             else android.widget.Toast.makeText(a,"Add this game to your Wishlist, then tap its bell.",android.widget.Toast.LENGTH_LONG).show();
         });
-        action(actions,"own",owned?"Owned":"Own",owned,()->change("library",!owned));
-        action(actions,"ignore",ignored?"Ignored":"Ignore",ignored,()->change("ignored",!ignored));
+        action(actions,owned?"own-on":"own",owned?"Owned":"Own",owned,()->change("library",!owned));
+        action(actions,ignored?"ignore-on":"ignore",ignored?"Ignored":"Ignore",ignored,()->change("ignored",!ignored));
         tabs=new HorizontalScrollView(a);tabs.setHorizontalScrollBarEnabled(false);tabRow=w.row();tabs.addView(tabRow);
         LinearLayout.LayoutParams spacing=new LinearLayout.LayoutParams(-1,-2);spacing.topMargin=w.dp(12);page.addView(tabs,spacing);
         content=w.column();page.addView(content);
