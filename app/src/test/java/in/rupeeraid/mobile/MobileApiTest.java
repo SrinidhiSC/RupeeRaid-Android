@@ -21,6 +21,26 @@ public class MobileApiTest {
             .put("url","https://itad.link/example/?affiliate=test").put("cut",100)
             .put("timestamp","2026-01-01T12:00:00+05:30").put("voucher","INDIA");
     }
+    @Test public void earlyAccessTokenRejectionRenewsOnceAndKeepsPricingKey() throws Exception {
+        Memory disk=new Memory();
+        disk.write("oauth",new JSONObject().put("access_token","old").put("refresh_token","renew")
+            .put("expires",Long.MAX_VALUE).toString());
+        disk.write("personalKey","personal");
+        List<String> calls=new ArrayList<>();
+        MobileApi api=new MobileApi(disk,"client",(url,method,header,credential,format,body)->{
+            calls.add(credential);
+            if(credential.equals("Bearer old"))throw new MobileApi.Failure(401,0,"Expired");
+            if(url.endsWith("/oauth/token/")){
+                assertTrue(body.contains("refresh_token=renew"));
+                return new JSONObject().put("access_token","new").put("token_type","Bearer");
+            }
+            return new JSONObject().put("list",new JSONArray().put(game().put("deal",offer("Steam","INR"))));
+        });
+        api.resolveRegion("IN");
+        assertEquals(Arrays.asList("Bearer old","","Bearer new"),calls);
+        assertEquals("renew",new JSONObject(disk.read("oauth")).getString("refresh_token"));
+        assertEquals("personal",disk.read("personalKey"));
+    }
     @Test public void regionUsesCurrencyReturnedByItad() throws Exception {
         Memory memory=new Memory();
         memory.write("oauth",new JSONObject().put("expires",Long.MAX_VALUE).put("access_token","test").toString());

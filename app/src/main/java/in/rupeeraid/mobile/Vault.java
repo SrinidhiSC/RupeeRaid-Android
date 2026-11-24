@@ -31,10 +31,11 @@ final class Vault implements MobileApi.Storage {
         }
     }
     private AtomicFile file(String name) { return new AtomicFile(new File(context.getNoBackupFilesDir(), regionalName(name))); }
-    private SecretKey key() throws Exception {
+    private SecretKey key(boolean create) throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore");
         store.load(null);
         if (!store.containsAlias(ALIAS)) {
+            if(!create)throw new java.security.KeyStoreException("Encryption key unavailable");
             KeyGenerator gen = KeyGenerator.getInstance("AES", "AndroidKeyStore");
             gen.init(new KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build());
@@ -42,17 +43,33 @@ final class Vault implements MobileApi.Storage {
         }
         return (SecretKey)store.getKey(ALIAS, null);
     }
+    static final class CredentialUnavailable extends IllegalStateException {
+        CredentialUnavailable(Exception cause){super("Cannot read encrypted credentials.",cause);}
+    }
     public String read(String name) {
+        synchronized(Vault.class){return readFile(name);}
+    }
+    private String readFile(String name) {
+        AtomicFile target=file(name);
         try {
-            byte[] data = file(name).readFully();
+            byte[] data = target.readFully();
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128, Arrays.copyOf(data, 12)));
+            cipher.init(Cipher.DECRYPT_MODE, key(false), new GCMParameterSpec(128, Arrays.copyOf(data, 12)));
             return new String(cipher.doFinal(data, 12, data.length - 12), StandardCharsets.UTF_8);
-        } catch (Exception unavailable) { return ""; }
+        } catch (Exception unavailable) {
+            if ("oauth".equals(name) || "personalKey".equals(name)) {
+                if (!(unavailable instanceof java.io.FileNotFoundException) || target.getBaseFile().exists())
+                    throw new CredentialUnavailable(unavailable);
+            }
+            return "";
+        }
     }
     public void write(String name, String value) throws Exception {
+        synchronized(Vault.class){writeFile(name,value);}
+    }
+    private void writeFile(String name,String value) throws Exception {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        cipher.init(Cipher.ENCRYPT_MODE, key());
+        cipher.init(Cipher.ENCRYPT_MODE, key(true));
         AtomicFile target = file(name);
         FileOutputStream stream = target.startWrite();
         try {
@@ -61,7 +78,7 @@ final class Vault implements MobileApi.Storage {
             target.finishWrite(stream);
         } catch (Exception ex) { target.failWrite(stream); throw ex; }
     }
-    public void remove(String name) { file(name).delete(); }
+    public void remove(String name) { synchronized(Vault.class){file(name).delete();} }
     void clearRegionalData(){
         File[] files=context.getNoBackupFilesDir().listFiles((dir,name)->name.startsWith("region-") || name.startsWith("guide-") || Arrays.asList("lists","snapshot","quotes","waitPrices","collectionPrices","priceAlerts","searchCache","cacheGeneration").contains(name));
         if(files!=null)for(File item:files)new AtomicFile(item).delete();

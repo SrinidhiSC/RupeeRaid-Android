@@ -146,6 +146,58 @@ public class MarketScreenTest {
             capture.compress(Bitmap.CompressFormat.PNG,100,stream);
         }finally{capture.recycle();}
     }
+    @Test public void firstFeedShowsPlaceholdersUntilSyncSettles() throws Exception {
+        scenario.onActivity(a->{
+            a.data=new JSONObject();a.manualRefresh();
+            assertTrue("First sync must start immediately",a.loadingFirstFeed);
+            android.widget.ListView feed=findList(a.getWindow().getDecorView());
+            assertNotNull(feed);
+            assertEquals("Loading trending games",((View)feed.getItemAtPosition(1)).getContentDescription());
+            assertEquals("Loading deals",((View)feed.getItemAtPosition(2)).getContentDescription());
+        });
+        AtomicBoolean settled=new AtomicBoolean();
+        waitUntil(()->{scenario.onActivity(a->settled.set(!a.busy));return settled.get();});
+        onView(withText("Refresh")).check(matches(isDisplayed()));
+    }
+    @Test public void storageReadFailureCanRetryWithTheOriginalProfileAndKey() throws Exception {
+        Context ctx=InstrumentationRegistry.getInstrumentation().getTargetContext();
+        scenario.onActivity(a->a.accountPrefs().edit().putString("nickname","Saved player").commit());
+        scenario.close();
+        vault.write("personalKey","fixture-key");
+        File encrypted=new File(ctx.getNoBackupFilesDir(),"personalKey");
+        byte[] original=Files.readAllBytes(encrypted.toPath());
+        try{
+            Files.write(encrypted.toPath(),new byte[]{42});
+            scenario=ActivityScenario.launch(MainActivity.class);awaitReady();
+            onView(withText("Unlock your saved account")).check(matches(isDisplayed()));
+            assertArrayEquals(new byte[]{42},Files.readAllBytes(encrypted.toPath()));
+            Files.write(encrypted.toPath(),original);
+            onView(withText("Retry")).perform(click());awaitReady();
+            scenario.onActivity(a->{assertTrue(a.signedIn);assertTrue(a.personal);});
+            onView(withContentDescription("Account settings")).perform(click());
+            onView(withText("Saved player")).check(matches(isDisplayed()));
+        }finally{
+            ctx.getSharedPreferences("MainActivity",0).edit().remove("nickname").commit();
+        }
+    }
+    @Test public void firstRunResumesSetupAndAllowsSkippingPricingKey() throws Exception {
+        scenario.onActivity(a->a.getPreferences(0).edit().remove("introStep").commit());
+        scenario.close();
+        vault.remove("oauth");
+        scenario=ActivityScenario.launch(MainActivity.class);awaitReady();
+        onView(withText("Get started")).perform(click());
+        onView(withText("Sign in with IsThereAnyDeal")).check(matches(isDisplayed()));
+        scenario.recreate();awaitReady();
+        onView(withText("Sign in with IsThereAnyDeal")).check(matches(isDisplayed()));
+        scenario.close();
+        vault.write("oauth","{}");
+        scenario=ActivityScenario.launch(MainActivity.class);awaitReady();
+        onView(withText("Add personal API key")).check(matches(isDisplayed()));
+        onView(withText("Continue without a key")).perform(click());
+        onView(withContentDescription("Wishlist")).check(matches(isDisplayed()));
+        scenario.recreate();awaitReady();
+        onView(withContentDescription("Wishlist")).check(matches(isDisplayed()));
+    }
     @Test public void homeWishlistSearchPlatformAndAccount() throws Exception {
         onView(withText("Trending games")).check(matches(isDisplayed()));preview("discover",true);
         onView(withContentDescription("See all trending games")).perform(click());
@@ -162,12 +214,14 @@ public class MarketScreenTest {
         preview("offers",true);pressBack();
         onView(withContentDescription("Search games")).perform(click());
         onView(isAssignableFrom(android.widget.EditText.class)).perform(replaceText("Far Cry 3"),closeSoftKeyboard());
-        onView(allOf(withText("Far Cry 3"),not(isAssignableFrom(android.widget.EditText.class)))).check(matches(isDisplayed())).perform(click());pressBack();
+        onView(allOf(withText("Far Cry 3"),not(isAssignableFrom(android.widget.EditText.class)))).check(matches(isDisplayed())).perform(click());
+        onView(withText("Price summary")).check(matches(isDisplayed()));
+        pressBack();
         onView(isAssignableFrom(android.widget.EditText.class)).check(matches(withText("Far Cry 3")));
         pressBack();
         onView(withContentDescription("Account settings")).perform(click());
         onView(withText("IsThereAnyDeal member")).check(matches(isDisplayed()));preview("account",false);
-        onView(withText("Add personal API key")).perform(click());
+        onView(withText("Add personal API key")).perform(scrollTo(),click());
         onView(withText("Cancel")).perform(click());
         onView(withText("View ignored games")).perform(scrollTo(),click());
         onView(withText("This list is empty.")).check(matches(isDisplayed()));

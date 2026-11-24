@@ -51,7 +51,11 @@ final class MarketScreen {
     private TextView refreshAction;
     private final LinearLayout syncIndicator;
     private final View syncIcon;
-    private TextView unreadBadge;
+    private TextView unreadBadge,accountAvatar;
+    private int navTarget=-1,navCount=-1;
+    private float navPosition=-1;
+    private ValueAnimator navSlide;
+    private TextView setupKey;
 
     private final android.os.Handler typing=new android.os.Handler(android.os.Looper.getMainLooper());
     private final java.util.concurrent.ExecutorService matcher=java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -132,10 +136,28 @@ final class MarketScreen {
         w.pad(message,16,9,16,9);message.setBackgroundColor(RAISED);root.addView(message);
         FrameLayout viewport=new FrameLayout(a);root.addView(viewport,new LinearLayout.LayoutParams(-1,0,1));
         stage=new FrameLayout(a);stage.setBackgroundColor(BG);viewport.addView(stage);
-        nav=w.row();GradientDrawable rail=w.shape(PANEL,24);rail.setStroke(w.dp(1),LINE);nav.setBackground(rail);w.pad(nav,7,5,7,5);
+        nav=new LinearLayout(a){
+            private final GradientDrawable marker=w.shape(ACCENT_SURFACE,16);
+            @Override protected void dispatchDraw(android.graphics.Canvas canvas){
+                if(navTarget>=0 && getChildCount()==4){
+                    View first=getChildAt(0),last=getChildAt(3);
+                    int left=Math.round(first.getLeft()+(last.getLeft()-first.getLeft())*navPosition/3f);
+                    marker.setBounds(left,first.getTop(),left+first.getWidth(),first.getBottom());
+                    marker.setStroke(w.dp(1),ACCENT);marker.draw(canvas);
+                }
+                super.dispatchDraw(canvas);
+            }
+        };GradientDrawable rail=w.shape(PANEL,24);rail.setStroke(w.dp(1),LINE);nav.setBackground(rail);w.pad(nav,7,5,7,5);
         FrameLayout.LayoutParams navParams=new FrameLayout.LayoutParams(-1,w.dp(62),Gravity.BOTTOM);navParams.setMargins(w.dp(14),0,w.dp(14),w.dp(10));viewport.addView(nav,navParams);
     }
     void status(){
+        if(accountAvatar!=null){
+            String name=a.accountPrefs().getString("nickname","");
+            if(name.isEmpty())name=Market.accountName(a.data);
+            String initial=name.substring(0,name.offsetByCodePoints(0,1)).toUpperCase(Locale.ROOT);
+            if(!initial.contentEquals(accountAvatar.getText()))accountAvatar.setText(initial);
+        }
+        if(setupKey!=null)setupKey.setEnabled(!a.busy);
         boolean animate=motion(a);
         if(progress.isIndeterminate()!=animate){progress.setIndeterminate(animate);if(!animate)progress.setProgress(100);}
         boolean manual=a.manualSync;
@@ -232,17 +254,29 @@ final class MarketScreen {
     }
     void render(boolean transition){
         if(a.ready && splashElapsed)finishSplash();
+        if(!transition && a.signedIn && selected!=null && gamePage!=null && headerMode.equals("game")){
+            gamePage.update(selected);status();return;
+        }
         if(selected!=null && gamePage!=null)gamePage.remember();
         if(a.ready && a.signedIn && !restoredId.isEmpty()){selected=findGame(restoredId);restoredId="";}
         if(settingsScroll!=null){settingsOffset="settings".equals(section)?settingsScroll.getScrollY():0;settingsScroll=null;}
         remember();shelf=null;list=null;refreshAction=null;stage.removeAllViews();
-        String mode=!a.signedIn?"welcome":selected!=null?"game":section.equals("settings")?"settings":selected==null && section.equals("search")?"search":"browse";
+        int intro=a.accountPrefs().getInt("introStep",0);
+        boolean keyStep=a.signedIn && !a.personal && intro==1;
+        setupKey=null;
+        String mode=!a.signedIn || keyStep?"welcome":selected!=null?"game":section.equals("settings")?"settings":selected==null && section.equals("search")?"search":"browse";
+        header.setVisibility(mode.equals("welcome")?View.GONE:View.VISIBLE);
         if(!mode.equals(headerMode)){makeHeader(mode);headerMode=mode;}
-        nav.setVisibility(a.signedIn && selected==null && !section.equals("settings")?View.VISIBLE:View.GONE);
+        nav.setVisibility(a.signedIn && !keyStep && selected==null && !section.equals("settings")?View.VISIBLE:View.GONE);
         if(!a.ready){if(splash==null && !restoredActivity)showSplash();}
-        else if(!a.signedIn){welcome();}
+        else if(a.storageUnavailable){
+            LinearLayout recovery=page();
+            addText(recovery,"Unlock your saved account",24,WHITE,true,26);
+            addText(recovery,"Unlock your phone and retry to open your encrypted sign-in and pricing key.",15,MUTED,false,8);
+            pageAction(recovery,"Retry",true,a::restoreAccount);
+        }else if(!a.signedIn || keyStep){welcome(intro,keyStep);}
         else{
-            makeNav();
+            if(nav.getVisibility()==View.VISIBLE)makeNav(transition);
             if(selected!=null)details();
             else if(section.equals("settings"))settings();
             else if(section.equals("alerts"))alerts();
@@ -250,12 +284,12 @@ final class MarketScreen {
         }
         status();
         if(transition && motion(a)){
-            stage.animate().cancel();stage.setAlpha(.76f);stage.setTranslationY(w.dp(9));
-            stage.animate().alpha(1f).translationY(0f).setInterpolator(EASE).setDuration(245).start();
+            stage.animate().cancel();stage.setTranslationY(w.dp(5));
+            stage.animate().translationY(0f).setInterpolator(EASE).setDuration(180).start();
         }
     }
     private void makeHeader(String mode){
-        header.removeAllViews();search=null;unreadBadge=null;
+        header.removeAllViews();search=null;unreadBadge=null;accountAvatar=null;
         if(mode.equals("settings") || mode.equals("game")){
             header.addView(w.iconButton("back","Back",this::back),square(44));
             header.addView(w.text(mode.equals("settings")?"Account & Settings":"Game details",18,WHITE,true),w.flex());
@@ -302,10 +336,8 @@ final class MarketScreen {
         FrameLayout bell=w.iconButton("bell","Price alert inbox",()->go("alerts"));
         unreadBadge=w.text("",9,INK,true);unreadBadge.setGravity(Gravity.CENTER);w.pad(unreadBadge,3,0,3,0);unreadBadge.setBackground(w.shape(LILAC,8));
         bell.addView(unreadBadge,new FrameLayout.LayoutParams(-2,w.dp(14),Gravity.TOP|Gravity.END));header.addView(bell,square(42));
-        String accountName=a.getPreferences(0).getString("nickname",Market.accountName(a.data));
-        String initial=accountName.isEmpty()?"R":accountName.substring(0,accountName.offsetByCodePoints(0,1)).toUpperCase(Locale.ROOT);
-        TextView avatar=w.text(initial,15,ACCENT,true);avatar.setGravity(Gravity.CENTER);avatar.setContentDescription("Account settings");
-        w.action(avatar,w.shape(PANEL,13),()->go("settings"));header.addView(avatar,square(42));
+        accountAvatar=w.text("",15,ACCENT,true);accountAvatar.setGravity(Gravity.CENTER);accountAvatar.setContentDescription("Account settings");
+        w.action(accountAvatar,w.shape(PANEL,13),()->go("settings"));header.addView(accountAvatar,square(42));
     }
     private ImageView brandLogo(int size){
         return w.logo(a.getSharedPreferences("appearance",0).getString("logo",LOGOS[0]),size);
@@ -328,7 +360,7 @@ final class MarketScreen {
         body.setBackground(w.shape(PANEL,26));
         View handle=new View(a);handle.setBackground(w.shape(MUTED,4));
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(w.dp(40),w.dp(4));hp.gravity=Gravity.CENTER_HORIZONTAL;body.addView(handle,hp);
-        String name=a.getPreferences(0).getString("nickname","").trim();
+        String name=a.accountPrefs().getString("nickname","").trim();
         LinearLayout profile=w.row();w.pad(profile,12,10,12,10);
         LinearLayout.LayoutParams profileParams=new LinearLayout.LayoutParams(-1,-2);profileParams.topMargin=w.dp(12);
         body.addView(profile,profileParams);
@@ -370,14 +402,27 @@ final class MarketScreen {
         window.setDimAmount(.68f);sheet.show();
         if(motion(a)){scroll.setTranslationY(w.dp(48));scroll.animate().translationY(0).setInterpolator(EASE).setDuration(320).start();}
     }
-    private void makeNav(){
+    private void makeNav(boolean transition){
+        List<String> destinations=Arrays.asList("home","deals","wishlist","library");
+        int target=destinations.indexOf(section);
+        if(Arrays.asList("best","lows","trending","free","budget").contains(section))target=1;
+        if(section.equals("ignored"))target=3;
+        int wishlistSize=a.data.optJSONArray("wishlist")==null?0:a.data.optJSONArray("wishlist").length();
+        if(target==navTarget && wishlistSize==navCount && nav.getChildCount()>0)return;
+        if(target!=navTarget){
+            if(navSlide!=null)navSlide.cancel();
+            if(target>=0 && navTarget>=0 && transition && motion(a)){
+                navSlide=ValueAnimator.ofFloat(navPosition,target);
+                navSlide.setDuration(210);navSlide.setInterpolator(EASE);
+                navSlide.addUpdateListener(anim->{navPosition=(float)anim.getAnimatedValue();nav.invalidate();});navSlide.start();
+            }else navPosition=target;
+        }
+        navTarget=target;navCount=wishlistSize;
         nav.removeAllViews();
-        for(String dest:Arrays.asList("home","deals","wishlist","library")){
-            boolean current=section.equals(dest) || dest.equals("deals") && Arrays.asList("best","lows","trending","free").contains(section)
-                    || dest.equals("library") && section.equals("ignored");
+        for(String dest:destinations){
+            boolean current=destinations.indexOf(dest)==target;
             LinearLayout item=w.column();item.setGravity(Gravity.CENTER);
-            GradientDrawable tab=w.shape(current?ACCENT_SURFACE:Color.TRANSPARENT,16);
-            if(current)tab.setStroke(w.dp(1),ACCENT);
+            GradientDrawable tab=w.shape(Color.TRANSPARENT,16);
             w.action(item,tab,()->go(dest));
             FrameLayout pill=new FrameLayout(a);
             pill.addView(new Icon(a,dest,current?LILAC:MUTED),new FrameLayout.LayoutParams(w.dp(20),w.dp(20),Gravity.CENTER));
@@ -476,8 +521,10 @@ final class MarketScreen {
         if(section.equals("home")){
             feed.add(quickFilters());
             if(a.data.optLong("saved")==0){
-                if(a.busy)feed.add(w.loadingRows("Loading deals"));
-                else feed.add(empty("Your feed is ready to sync.",true));
+                if(a.loadingFirstFeed){
+                    feed.add(w.loadingPosters());
+                    for(int i=0;i<4;i++)feed.add(w.loadingRows("Loading deals"));
+                }else feed.add(empty("Sync your game deals",true));
                 return feed;
             }
             List<JSONObject> trending=rows("trending","Default");
@@ -523,7 +570,9 @@ final class MarketScreen {
             feed.add(insetButton(other.equals("ignored")?"View ignored games":"View library",()->go(other)));
         }
         if(entries.isEmpty() && section.equals("search") && searchStatus.startsWith("Searching"))feed.add(w.loadingRows(searchStatus));
-        else if(entries.isEmpty())feed.add(empty(emptyMessage(),a.data.optLong("saved")==0));
+        else if(entries.isEmpty() && a.loadingFirstFeed && !section.equals("search")){
+            for(int i=0;i<5;i++)feed.add(w.loadingRows("Loading games"));
+        }else if(entries.isEmpty())feed.add(empty(emptyMessage(),a.data.optLong("saved")==0));
         else if(grid)feed.addLibrary(entries);
         else feed.addGames(entries,entries.size(),section.equals("wishlist"));
         feed.add(attribution());return feed;
@@ -825,7 +874,7 @@ final class MarketScreen {
         int offset=settingsOffset;if(offset>0)scroll.post(()->scroll.scrollTo(0,offset));
 
         LinearLayout profile=panel(page);LinearLayout account=w.row();profile.addView(account);
-        String connected=Market.accountName(a.data),name=a.getPreferences(0).getString("nickname","");
+        String connected=Market.accountName(a.data),name=a.accountPrefs().getString("nickname","");
         String display=name.isEmpty()?connected:name;
         TextView avatar=w.text(display.substring(0,display.offsetByCodePoints(0,1)).toUpperCase(Locale.ROOT),24,INK,true);
         avatar.setGravity(Gravity.CENTER);avatar.setBackground(w.shape(ACCENT,16));
@@ -840,13 +889,14 @@ final class MarketScreen {
             if(counts.getChildCount()>0)countLayout.setMarginStart(w.dp(8));
             counts.addView(count,countLayout);
         }
-        settingRow(profile,"Edit profile","",()->{
+        LinearLayout profileActions=w.column();profile.addView(profileActions);
+        settingRow(profileActions,"Edit profile","",()->{
             EditText input=new EditText(a);input.setSingleLine(true);input.setHint("Display name on this phone");
             input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(40)});
             input.setText(name);input.setSelectAllOnFocus(true);
             LinearLayout form=w.column();w.pad(form,20,8,20,0);form.addView(input);
             new AlertDialog.Builder(a).setTitle("Edit profile").setView(form).setNegativeButton("Cancel",null)
-                    .setPositiveButton("Save",(d,i)->{a.getPreferences(0).edit().putString("nickname",input.getText().toString().trim()).apply();headerMode="";render(false);}).show();
+                    .setPositiveButton("Save",(d,i)->{a.accountPrefs().edit().putString("nickname",input.getText().toString().trim()).apply();headerMode="";render(false);}).show();
         });
         LinearLayout region=settingsGroup(page,"Region & store filters");
         detailRow(region,"Pricing region",PricingRegion.current.name()+" · "+PricingRegion.current.currency,
@@ -943,14 +993,36 @@ final class MarketScreen {
         });
         row.setOnClickListener(view->toggle.toggle());
     }
-    private void welcome(){
-        LinearLayout page=page();w.pad(page,20,30,20,20);
-        LinearLayout card=panel(page);
-        card.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{RAISED,PANEL}));
-        w.pad(card,21,24,21,22);ImageView logo=brandLogo(50);card.addView(logo,square(50));
-        addText(card,"PC game deals",30,WHITE,true,20);
-        addText(card,"Compare store offers and track the games on your IsThereAnyDeal wishlist.",16,MUTED,false,9);
-        addText(card,"Sign in directly with IsThereAnyDeal. RupeeRaid encrypts your sign-in tokens on this phone to sync your lists and check price alerts.",13,MUTED,false,9);
+    private void welcome(int step,boolean keyStep){
+        ScrollView scroll=new ScrollView(a);scroll.setFillViewport(true);scroll.setVerticalScrollBarEnabled(false);
+        stage.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout layout=w.column();scroll.addView(layout);
+        layout.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{BG,PANEL,BG}));
+        LinearLayout brand=w.row();w.pad(brand,24,20,24,6);layout.addView(brand);
+        brand.addView(brandLogo(36),square(36));TextView word=wordmark(21);w.pad(word,10,0,0,0);brand.addView(word);
+        View landscape=new WelcomeLandscape(a);
+        layout.addView(landscape,new LinearLayout.LayoutParams(-1,w.dp(175),1));
+        LinearLayout page=w.column();w.pad(page,24,16,24,24);layout.addView(page);
+        LinearLayout card=w.column();w.pad(card,0,0,0,16);page.addView(card);
+        if(keyStep){
+            addText(card,"Compare prices across stores",25,WHITE,true,18);
+            addText(card,"Your personal key unlocks store offers, price history and catalog search. You can add it later in Settings.",16,MUTED,false,8);
+            setupKey=pageAction(page,"Add personal API key",true,a::editKey);
+            pageAction(page,"Continue without a key",false,()->{
+                a.accountPrefs().edit().putInt("introStep",2).apply();go(startupTab());
+            });
+            return;
+        }
+        if(step==0){
+            addText(card,"Your next game,\nat the right price.",34,WHITE,true,0);
+            addText(card,"Follow your PC wishlist across stores. See how today’s price compares and get an alert when it drops.",16,MUTED,false,10);
+            pageAction(page,"Get started",true,()->{
+                a.accountPrefs().edit().putInt("introStep",1).apply();render(true);
+            });
+            return;
+        }
+        addText(card,"Bring your wishlist.",32,WHITE,true,0);
+        addText(card,"Sign in with IsThereAnyDeal to sync the games you follow. Your sign-in tokens are encrypted on this phone.",16,MUTED,false,10);
         pageAction(page,"Sign in with IsThereAnyDeal",true,a::signIn).setEnabled(!a.busy);
         pageAction(page,"OAuth app settings",false,a::clientDialog).setEnabled(!a.busy);
     }

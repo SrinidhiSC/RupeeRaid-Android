@@ -123,7 +123,7 @@ final class MobileApi {
                 "client_id="+encode(clientId)+"&"+params);
         if(!"Bearer".equalsIgnoreCase(result.optString("token_type")) || result.optString("access_token").isEmpty())
             throw new IOException("Incomplete OAuth response.");
-        if(!result.has("refresh_token") && !previousRefresh.isEmpty())result.put("refresh_token",previousRefresh);
+        if(Market.text(result,"refresh_token").isEmpty() && !previousRefresh.isEmpty())result.put("refresh_token",previousRefresh);
         result.put("expires",now()+result.optLong("expires_in",3600));
         if(result.isNull("scope"))result.put("scope",fallbackScope);
         return result;
@@ -164,9 +164,9 @@ final class MobileApi {
             if(existing.contains(value) || requested.contains(value))scopes.add(value);
         return String.join(" ",scopes);
     }
-    private String bearer() throws Exception {
+    private String bearer(String rejected) throws Exception {
         JSONObject token=saved("oauth");
-        if(token.optLong("expires")<=now()+10) {
+        if(token.optLong("expires")<=now()+10 || ("Bearer "+token.optString("access_token")).equals(rejected)) {
             String refresh=token.optString("refresh_token");
             if(refresh.isEmpty())throw new Failure(401,0,"Sign in again to renew your session.");
             token=token("grant_type=refresh_token&refresh_token="+encode(refresh),refresh,token.optString("scope",OLD_SCOPE));
@@ -175,7 +175,12 @@ final class MobileApi {
         return "Bearer "+token.getString("access_token");
     }
     private Object account(String path,String method,String body) throws Exception {
-        return request(API+path,method,"Authorization",bearer(),"application/json",body);
+        String credential=bearer("");
+        try{return request(API+path,method,"Authorization",credential,"application/json",body);}
+        catch(Failure failure){
+            if(failure.status!=401)throw failure;
+            return request(API+path,method,"Authorization",bearer(credential),"application/json",body);
+        }
     }
     private Object pricing(String path,String method,String key,String body) throws Exception {
         return request(API+path,method,"ITAD-API-Key",key,"application/json",body);
@@ -413,7 +418,8 @@ final class MobileApi {
         if (lists.has("best") && generation().equals(lists.optString("generation")) && fresh(lists.optLong("saved"),now())) return lists;
         JSONObject fresh = new JSONObject();
         JSONObject profile = (JSONObject)account("/user/info/v2","GET",null);
-        fresh.put("name",Market.text(profile,"username"));
+        String username=Market.text(profile,"username");
+        fresh.put("name",username.isEmpty()?Market.text(lists,"name"):username);
         fresh.put("wishlist",account("/waitlist/games/v1","GET",null));
         fresh.put("library",account("/collection/games/v1","GET",null));
         fresh.put("ignored",account("/ignored/games/v1","GET",null));

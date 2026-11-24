@@ -163,7 +163,8 @@ final class MarketWidgets {
             view.setImageResource(R.drawable.art_placeholder);
             settled.run();return;
         }
-        RequestBuilder<Drawable> request=artwork(view,url).dontAnimate().error(R.drawable.art_placeholder);
+        RequestBuilder<Drawable> request=artwork(view,url).placeholder(view.getDrawable()).error(R.drawable.art_placeholder);
+        if(motion(context))request.transition(DrawableTransitionOptions.withCrossFade(150));else request.dontAnimate();
         (portrait?request.centerCrop():request.fitCenter()).listener(new com.bumptech.glide.request.RequestListener<Drawable>() {
             public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException error,Object model,
                     com.bumptech.glide.request.target.Target<Drawable> target,boolean first){
@@ -222,19 +223,24 @@ final class MarketWidgets {
     }
 
     View loadingRows(String label){
-        View skeleton=new LoadingRows(context,motion(context));
+        View skeleton=new LoadingRows(context,motion(context),false);
         skeleton.setMinimumHeight(dp(75));skeleton.setContentDescription(label);
         skeleton.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         return skeleton;
+    }
+    View loadingPosters(){
+        View shelf=new LoadingRows(context,motion(context),true);
+        shelf.setMinimumHeight(dp(266));shelf.setContentDescription("Loading trending games");
+        return shelf;
     }
     private static final class LoadingRows extends View {
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         final android.graphics.Matrix shift=new android.graphics.Matrix();
         android.graphics.LinearGradient light;
         final float density;
-        final boolean animate;
-        LoadingRows(Context context,boolean animate){
-            super(context);density=getResources().getDisplayMetrics().density;this.animate=animate;
+        final boolean animate,posters;
+        LoadingRows(Context context,boolean animate,boolean posters){
+            super(context);density=getResources().getDisplayMetrics().density;this.animate=animate;this.posters=posters;
         }
         @Override protected void onMeasure(int width,int height){
             setMeasuredDimension(resolveSize(getSuggestedMinimumWidth(),width),resolveSize(getSuggestedMinimumHeight(),height));
@@ -248,9 +254,20 @@ final class MarketWidgets {
             float width=getWidth(),d=density;
             float phase=animate?(android.os.SystemClock.uptimeMillis()%1550)/1550f:.55f;
             shift.setTranslate((phase*1.9f-.8f)*width,0);light.setLocalMatrix(shift);paint.setShader(light);
+            if(posters){
+                c.drawRoundRect(14*d,15*d,width*.47f,29*d,5*d,5*d,paint);
+                float card=(width-40*d)/2;
+                for(int i=0;i<2;i++){
+                    float x=14*d+i*(card+12*d);
+                    c.drawRoundRect(x,44*d,x+card,210*d,12*d,12*d,paint);
+                    c.drawRoundRect(x,220*d,x+card*.84f,231*d,4*d,4*d,paint);
+                    c.drawRoundRect(x,239*d,x+card*.45f,247*d,4*d,4*d,paint);
+                }
+            }else{
             c.drawRoundRect(14*d,12*d,70*d,61*d,8*d,8*d,paint);
             c.drawRoundRect(82*d,19*d,Math.max(83*d,width*.78f),30*d,4*d,4*d,paint);
             c.drawRoundRect(82*d,40*d,Math.max(83*d,width*.57f),48*d,4*d,4*d,paint);
+            }
             if(animate && isShown() && getWindowVisibility()==VISIBLE)postInvalidateOnAnimation();
         }
     }

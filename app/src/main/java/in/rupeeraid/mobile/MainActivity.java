@@ -32,7 +32,8 @@ public final class MainActivity extends Activity {
     JSONObject data=new JSONObject(),alertState=new JSONObject();
     String note="";
     boolean signedIn,personal,busy,ready;
-    boolean manualSync;
+    boolean manualSync,loadingFirstFeed,storageUnavailable;
+    android.content.SharedPreferences accountPrefs(){return getSharedPreferences("MainActivity",MODE_PRIVATE);}
     long backoff;
     private long lastAutoAttempt;
     private final Runnable tick=new Runnable(){
@@ -50,14 +51,35 @@ public final class MainActivity extends Activity {
         getWindow().setNavigationBarColor(MarketWidgets.BAR);
         applyRefreshRate();
         vault=new Vault(this);
-        clientId=getPreferences(0).getString("clientId",BuildConfig.ITAD_CLIENT_ID);
+        android.content.SharedPreferences legacy=getPreferences(0);
+        if(legacy!=accountPrefs()){
+            android.content.SharedPreferences.Editor migration=accountPrefs().edit();
+            for(String field:new String[]{"nickname","clientId"})
+                if(!accountPrefs().contains(field) && legacy.contains(field))migration.putString(field,legacy.getString(field,""));
+            if(!accountPrefs().contains("introStep") && legacy.contains("introStep"))migration.putInt("introStep",legacy.getInt("introStep",0));
+            migration.apply();
+        }
+        clientId=accountPrefs().getString("clientId",BuildConfig.ITAD_CLIENT_ID);
         api=new MobileApi(vault,clientId,MobileApi::send);
         screen=new MarketScreen(this);
         if(saved!=null)screen.restore(saved);
+        restoreAccount();
+    }
+    void restoreAccount(){
+        ready=false;storageUnavailable=false;
         screen.render(false);
         io.execute(()->{
-            boolean session=!vault.read("oauth").isEmpty();
-            boolean key=session && !vault.read("personalKey").isEmpty();
+            boolean session,key;
+            try{
+                session=!vault.read("oauth").isEmpty();
+                key=session && !vault.read("personalKey").isEmpty();
+            }catch(Vault.CredentialUnavailable unavailable){
+                runOnUiThread(()->{
+                    if(isDestroyed())return;
+                    ready=true;storageUnavailable=true;screen.render(false);
+                });
+                return;
+            }
             JSONObject cached=new JSONObject();
             if(session)try{cached=MobileApi.restoreSnapshot(vault.read("snapshot"));}catch(Exception ignored){}
             final JSONObject snapshot=cached,alerts=session?readAlerts():new JSONObject();
@@ -65,7 +87,9 @@ public final class MainActivity extends Activity {
             runOnUiThread(()->{
                 if(isDestroyed())return;
                 data=snapshot;alertState=alerts;signedIn=session;personal=key;ready=true;
-                backoff=getPreferences(0).getLong("backoff",0);
+                if(key && accountPrefs().getInt("introStep",0)==1)
+                    accountPrefs().edit().putInt("introStep",2).apply();
+                backoff=accountPrefs().getLong("backoff",0);
                 screen.render(false);
                 if(!handle(getIntent()) && signedIn){
                     refreshIfExpired();
@@ -87,7 +111,7 @@ public final class MainActivity extends Activity {
         android.view.WindowManager.LayoutParams params=getWindow().getAttributes();
         params.preferredRefreshRate=highest;getWindow().setAttributes(params);
     }
-    @Override protected void onNewIntent(Intent intent) {super.onNewIntent(intent);setIntent(intent);if(ready)handle(intent);}
+    @Override protected void onNewIntent(Intent intent) {super.onNewIntent(intent);setIntent(intent);if(ready && !storageUnavailable)handle(intent);}
     @Override protected void onStart() {super.onStart();screen.resumeSearch();handler.post(tick);if(ready && signedIn){reloadAlerts();refreshIfExpired();}}
     @Override protected void onStop() {screen.pauseSearch();handler.removeCallbacks(tick);super.onStop();}
     @Override protected void onDestroy(){screen.dispose();super.onDestroy();}
@@ -120,7 +144,7 @@ public final class MainActivity extends Activity {
                 });
             }catch(Exception e){runOnUiThread(()->{
                 if(isDestroyed())return;
-                busy=false;manualSync=false;
+                busy=false;manualSync=false;loadingFirstFeed=false;
                 if(e instanceof MobileApi.Failure){
                     MobileApi.Failure failure=(MobileApi.Failure)e;
                     note=failure.getMessage();
@@ -133,10 +157,11 @@ public final class MainActivity extends Activity {
             });}
         });
     }
-    private void pause(int seconds){backoff=now()+seconds;getPreferences(0).edit().putLong("backoff",backoff).apply();}
+    private void pause(int seconds){backoff=now()+seconds;accountPrefs().edit().putLong("backoff",backoff).apply();}
     private void resumeCallback(){if(!busy && deferred!=null){Intent next=deferred;deferred=null;callback(next);}}
     void refreshIfExpired(){
         if(!signedIn || busy || remaining()>0 || now()-lastAutoAttempt<60)return;
+        if(!personal && accountPrefs().getInt("introStep",0)==1)return;
         if(data.optInt("schema")==2 && MobileApi.fresh(data.optLong("saved"),now()) &&
                 Market.text(data,"warning").isEmpty())return;
         lastAutoAttempt=now();
@@ -151,6 +176,7 @@ public final class MainActivity extends Activity {
     private void refresh(boolean force){
         if(!signedIn || busy || remaining()>0)return;
         manualSync=force;
+        loadingFirstFeed=data.optLong("saved")==0;
         final JSONObject previous=data;
         run(()->{
             if(force)api.beginRefresh();
@@ -190,11 +216,12 @@ public final class MainActivity extends Activity {
             }
             return snapshot;
         },snapshot->{
-            data=snapshot;personal=data.optBoolean("personal");note=Market.text(data,"warning");
+            loadingFirstFeed=false;data=snapshot;note=Market.text(data,"warning");
             int retry=data.optInt("retryAfter");if(retry>0)pause(retry);
             if(force)screen.refreshDetails();
             screen.updated();if(force)screen.refreshSelectedPrices();reloadAlerts();
         });
+        if(loadingFirstFeed)screen.render(false);
     }
     void libraryPrices(){
         JSONArray collection=data.optJSONArray("library");
@@ -244,7 +271,7 @@ public final class MainActivity extends Activity {
             JSONArray hits=null;String error="";
             if(current.getAsBoolean())try{hits=api.search(term);}
             catch(MobileApi.Failure e){error=e.getMessage();
-                if(e.status==429){long until=now()+e.retry;runOnUiThread(()->{backoff=Math.max(backoff,until);getPreferences(0).edit().putLong("backoff",backoff).apply();});}
+                if(e.status==429){long until=now()+e.retry;runOnUiThread(()->{backoff=Math.max(backoff,until);accountPrefs().edit().putLong("backoff",backoff).apply();});}
             }catch(Exception e){error="Catalog offline · showing saved matches";}
             final JSONArray result=hits;final String message=error;
             runOnUiThread(()->{if(!isDestroyed())done.accept(result,message);});
@@ -279,7 +306,10 @@ public final class MainActivity extends Activity {
             api.setKey(value);
             return new JSONObject();
         },ignored->{
-            personal=!value.isEmpty();screen.keyChanged();
+            personal=!value.isEmpty();
+            if(personal && accountPrefs().getInt("introStep",0)==1)
+                accountPrefs().edit().putInt("introStep",2).apply();
+            screen.keyChanged();
             if(personal && backoff<=now())refresh();
             else notice(personal?"Personal key saved.":"Personal key removed.");
         });
@@ -405,7 +435,7 @@ public final class MainActivity extends Activity {
     }
     void clientDialog(){
         input("Public OAuth client ID",clientId,false,value->{
-            clientId=value.trim();getPreferences(0).edit().putString("clientId",clientId).apply();
+            clientId=value.trim();accountPrefs().edit().putString("clientId",clientId).apply();
             api=new MobileApi(vault,clientId,MobileApi::send);vault.remove("pending");
             notice("Register "+MobileApi.REDIRECT+" as the redirect URI on IsThereAnyDeal.");
         });
@@ -461,14 +491,18 @@ public final class MainActivity extends Activity {
             run(()->{api.login(code,pending.getString("verifier"),pending.optString("scope",MobileApi.OLD_SCOPE));return new JSONObject();},result->{
                 signedIn=true;
                 if(reconnect){notice("IsThereAnyDeal reconnected. You can edit your lists.");screen.render(false);}
-                else{screen.go("home");refresh();}
+                else if(accountPrefs().getInt("introStep",0)==1)screen.render(true);
+                else screen.go("home");
             });
         }catch(Exception e){notice("This sign-in link has expired. Start sign-in again.");}
         return true;
     }
     private void clearPrivateFiles(){
         for(String file:new String[]{"oauth","snapshot","pending","personalKey","lists","quotes","waitPrices","collectionPrices","searchCache","priceAlerts","gameNotes","nextSession"})vault.remove(file);
-        vault.clearRegionalData();getPreferences(0).edit().remove("nickname").apply();AlertJob.schedule(this,false);
+        vault.clearRegionalData();accountPrefs().edit().remove("nickname").apply();
+        for(String alias:new String[]{"LauncherBolt","LauncherShield","LauncherPixel","LauncherNeon","LauncherPitch"})
+            getSharedPreferences(alias,MODE_PRIVATE).edit().remove("nickname").apply();
+        AlertJob.schedule(this,false);
     }
     private void resetDisplay(boolean connected){
         getSystemService(android.app.NotificationManager.class).cancelAll();signedIn=connected;personal=false;

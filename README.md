@@ -2,7 +2,7 @@
 
 RupeeRaid runs directly on Android 8.0 and newer. The phone connects to IsThereAnyDeal (ITAD), saves an encrypted cache and schedules its own price checks.
 
-**[Download the installable 2.0 development APK](https://github.com/SrinidhiSC/RupeeRaid-Android/releases/download/v2.0/RupeeRaid-2.0-dev.apk)**. This build uses the same development signing certificate as 1.8. Keep your production signing keystore outside the repository.
+**[Download the installable 2.1 development APK](https://github.com/SrinidhiSC/RupeeRaid-Android/releases/download/v2.1/RupeeRaid-2.1-dev.apk)**. This build uses the same development signing certificate as 1.8. Keep your production signing keystore outside the repository.
 
 ## Develop on another device
 

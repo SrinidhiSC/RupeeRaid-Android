@@ -26,7 +26,7 @@ final class GamePage {
     private JSONObject game;
     private String platform,filter="",historyKey="history";
     private TextView heroInfo;
-    private LinearLayout hero;
+    private LinearLayout hero,offerHeader,actions;
     private View heroLoading;
     private ImageView cover;
     private int requestGeneration;
@@ -53,6 +53,26 @@ final class GamePage {
         line(head,PricingRegion.current.name().toUpperCase(Locale.ROOT)+"  /  "+(type.isEmpty()?"GAME":type.toUpperCase(Locale.ROOT))+"  ·  PC",11,LILAC,true,1);
         line(head,Market.text(game,"title"),24,WHITE,true,5);
         heroInfo=w.text("",12,MUTED,false);w.pad(heroInfo,0,6,0,0);head.addView(heroInfo);showHeroInfo();
+        offerHeader=w.column();head.addView(offerHeader);
+        actions=w.row();w.pad(actions,0,13,0,8);page.addView(actions);
+        bindGameControls();
+        tabs=new HorizontalScrollView(a);tabs.setHorizontalScrollBarEnabled(false);tabRow=w.row();tabs.addView(tabRow);
+        LinearLayout.LayoutParams spacing=new LinearLayout.LayoutParams(-1,-2);spacing.topMargin=w.dp(12);page.addView(tabs,spacing);
+        content=w.column();page.addView(content);
+        if(a.personal && !loaded.containsKey("about"))request("about");
+        paintTabs(false);paintContent();
+        final int oldY=scrollY,oldX=tabX;ScrollView current=scroll;HorizontalScrollView strip=tabs;
+        current.post(()->{current.scrollTo(0,oldY);strip.scrollTo(oldX,0);});
+    }
+    void update(JSONObject latest){
+        game=latest;
+        showHeroInfo();
+        bindGameControls();
+        paintContent();
+    }
+    private void bindGameControls(){
+        LinearLayout head=offerHeader;
+        head.removeAllViews();actions.removeAllViews();
         JSONObject lead=Market.best(game,platform);
         if(lead!=null){
             LinearLayout chips=w.row();w.pad(chips,0,8,0,0);head.addView(chips);
@@ -62,7 +82,6 @@ final class GamePage {
             if(lead.optInt("cut")>0){TextView cut=w.badge("−"+lead.optInt("cut")+"%",false);w.tierBadge(cut,tier,false);w.addBadge(chips,cut);}
             line(head,Market.text(lead,"shop"),12,MUTED,false,4);
         }
-        LinearLayout actions=w.row();w.pad(actions,0,13,0,8);page.addView(actions);
         boolean wished=member("wishlist"),owned=member("library"),ignored=member("ignored");
         boolean notifying=a.gameRule(id)!=null;
         action(actions,wished?"heart-on":"heart",wished?"Wishlisted":"Wishlist",wished,()->change("wishlist",!wished));
@@ -72,13 +91,6 @@ final class GamePage {
         });
         action(actions,owned?"own-on":"own",owned?"Owned":"Own",owned,()->change("library",!owned));
         action(actions,ignored?"ignore-on":"ignore",ignored?"Ignored":"Ignore",ignored,()->change("ignored",!ignored));
-        tabs=new HorizontalScrollView(a);tabs.setHorizontalScrollBarEnabled(false);tabRow=w.row();tabs.addView(tabRow);
-        LinearLayout.LayoutParams spacing=new LinearLayout.LayoutParams(-1,-2);spacing.topMargin=w.dp(12);page.addView(tabs,spacing);
-        content=w.column();page.addView(content);
-        if(a.personal && !loaded.containsKey("about"))request("about");
-        paintTabs(false);paintContent();
-        final int oldY=scrollY,oldX=tabX;ScrollView current=scroll;HorizontalScrollView strip=tabs;
-        current.post(()->{current.scrollTo(0,oldY);strip.scrollTo(oldX,0);});
     }
     private JSONObject info(){
         JSONObject page=loaded.get("about");return page==null?null:page.optJSONObject("data");
@@ -95,7 +107,11 @@ final class GamePage {
         ImageView target=cover;
         w.heroArt(target,url,!portrait.isEmpty(),()->{
             if(target!=cover || !screen.isGame(this))return;
+            boolean firstReveal=hero.getVisibility()!=View.VISIBLE;
             heroLoading.setVisibility(View.GONE);hero.setVisibility(View.VISIBLE);
+            if(firstReveal && motion(a)){
+                hero.setAlpha(.85f);hero.animate().alpha(1f).setDuration(150).start();
+            }
         });
     }
     private static List<String> nonempty(String... values){List<String> result=new ArrayList<>();for(String value:values)if(!value.isEmpty())result.add(value);return result;}
