@@ -37,21 +37,21 @@ final class GameCatalog {
         }
     }
     private Object fetch(String id,String title,String section) throws Exception {
-        String gid="?id="+id,body=new JSONArray().put(id).toString(),shops=Market.shopQuery();
+        String gid="?id="+id,body=new JSONArray().put(id).toString();
         switch(section){
             case "about":return api.gameData("/games/info/v2"+gid,"GET",null);
             case "stats":return api.gameData("/stats/waitlist/v1"+gid+"&country="+PricingRegion.current.country,"GET",null);
-            case "lows":return matching((JSONArray)api.gameData("/games/storelow/v2?country="+PricingRegion.current.country+"&shops="+shops,"POST",body),id,"lows");
+            case "lows":return matching((JSONArray)api.gameData("/games/storelow/v2?country="+PricingRegion.current.country,"POST",body),id,"lows");
             case "record":{
                 for(JSONObject row:Market.objects((JSONArray)api.gameData("/games/historylow/v1?country="+PricingRegion.current.country,"POST",body)))
                     if(id.equals(Market.text(row,"id")) && row.optJSONObject("low")!=null)return row.getJSONObject("low");
                 return new JSONObject();
             }
-            case "history":return api.gameData("/games/history/v2"+gid+"&country="+PricingRegion.current.country+"&shops="+shops,"GET",null);
+            case "history":return api.gameData("/games/history/v2"+gid+"&country="+PricingRegion.current.country,"GET",null);
             case "historyYear":case "historyAll":{
                 String since=section.equals("historyAll")?"1970-01-01T00:00:00Z":java.time.Instant.now()
                         .truncatedTo(java.time.temporal.ChronoUnit.SECONDS).minus(365,java.time.temporal.ChronoUnit.DAYS).toString();
-                return api.gameData("/games/history/v2"+gid+"&country="+PricingRegion.current.country+"&shops="+shops+"&since="+MobileApi.encode(since),"GET",null);
+                return api.gameData("/games/history/v2"+gid+"&country="+PricingRegion.current.country+"&since="+MobileApi.encode(since),"GET",null);
             }
             case "bundles":return api.gameData("/games/bundles/v2"+gid+"&country="+PricingRegion.current.country+"&expired=true","GET",null);
             case "giveaways":return api.gameData("/games/giveaways/v1"+gid+"&expired=true","GET",null);

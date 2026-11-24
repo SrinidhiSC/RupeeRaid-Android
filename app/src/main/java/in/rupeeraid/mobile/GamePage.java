@@ -209,6 +209,11 @@ final class GamePage {
         }return String.join(" · ",values);
     }
     static String date(String raw){return raw.length()>=10?raw.substring(0,10):raw;}
+    static String localPriceDate(String raw){
+        if(raw.isEmpty())return "";
+        try{return Instant.parse(raw).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString();}
+        catch(java.time.DateTimeException invalid){return date(raw);}
+    }
     private static boolean ended(JSONObject row){
         String end=Market.text(row,"expiry");try{return !end.isEmpty() && !Instant.parse(end).isAfter(Instant.now());}catch(Exception e){return false;}
     }
@@ -337,17 +342,18 @@ final class GamePage {
         return result==null?null:result.optJSONArray("data");
     }
     private void offerOverview(){
-        String[] sections={"lows","record","historyYear","packs","bundles"};
+        String[] sections={"lows","record","historyAll","packs","bundles"};
         for(String key:sections)if(!loaded.containsKey(key))request(key);
         line(content,"Price summary",20,WHITE,true,12);
         LinearLayout box=w.column();content.addView(box);
         JSONObject best=Market.best(game,platform);
         summaryRow(box,"Current best",best==null?-1:best.optLong("paise",-1),Market.text(best,"shop"),WHITE);
         JSONObject record=loaded.get("record");
-        PriceRecords records=new PriceRecords(game,record==null?null:record.optJSONObject("data"),rowsFor("lows"),rowsFor("historyYear"));
+        PriceRecords records=new PriceRecords(game,record==null?null:record.optJSONObject("data"),rowsFor("lows"),rowsFor("historyAll"));
         for(int i=0;i<3;i++){
             PriceRecords.Low low=records.period(i);
-            String detail=low==null?"":String.join("  ·  ",nonempty(low.store,date(low.time)));
+            if(low!=null && low.time.isEmpty() && loadingPriceHistory())low=null;
+            String detail=low==null?"":String.join("  ·  ",nonempty(low.store,localPriceDate(low.time)));
             summaryRow(box,new String[]{"All-time low","1 year low","3 months low"}[i],low==null?-1:low.amount,detail,
                 lowColor(new Market.LowPeriod[]{Market.LowPeriod.ALL_TIME,Market.LowPeriod.YEAR,Market.LowPeriod.QUARTER}[i]));
         }
@@ -388,21 +394,26 @@ final class GamePage {
         LinearLayout tile=w.column();tile.setBackground(w.shape(PANEL,16));w.pad(tile,13,11,13,11);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(row.getChildCount()==0?0:w.dp(5),w.dp(6),row.getChildCount()==0?w.dp(5):0,w.dp(6));row.addView(tile,lp);
         line(tile,name,13,MUTED,false,0);
-        boolean pending=amount<0 && a.personal && (!loaded.containsKey("record") || !loaded.containsKey("lows") || !loaded.containsKey("historyYear"));
+        boolean pending=amount<0 && loadingPriceHistory();
         line(tile,amount<0?(pending?"Loading…":"Unavailable"):money(amount),amount<0?13:21,amount<0?MUTED:color,true,3);
         line(tile,detail,11,MUTED,false,4);
     }
+    private boolean loadingPriceHistory(){
+        return a.personal && (waiting.contains("record") || waiting.contains("lows") || waiting.contains("historyAll"));
+    }
     private void history(JSONArray rows){
         line(content,"Store history · "+(historyKey.equals("history")?"past three months":historyKey.equals("historyYear")?"past year":"all available dates"),19,WHITE,true,14);
-        List<Integer> stores=new ArrayList<>();
-        for(int shop:Market.INR_SHOPS)for(JSONObject r:Market.objects(rows)){
+        Map<Integer,String> names=new LinkedHashMap<>();
+        for(JSONObject r:Market.objects(rows)){
             JSONObject s=r.optJSONObject("shop"),d=r.optJSONObject("deal");
-            if(s!=null && s.optInt("id")==shop && d!=null && Market.nativeAmount(s,d.optJSONObject("price"))>=0){stores.add(shop);break;}
+            if(s!=null && s.has("id") && d!=null && Market.nativeAmount(s,d.optJSONObject("price"))>=0)
+                names.put(s.optInt("id"),Market.text(s,"name"));
         }
+        List<Integer> stores=new ArrayList<>(names.keySet());
         if(stores.isEmpty()){line(content,"No regional price changes for this period.",14,MUTED,false,9);return;}
         if(!stores.contains(historyShop))historyShop=stores.get(0);
-        String[] labels=new String[stores.size()];for(int i=0;i<labels.length;i++)labels[i]=Market.shopName(stores.get(i));
-        button(content,"Store · "+Market.shopName(historyShop),()->new AlertDialog.Builder(a).setTitle("Price history store").setItems(labels,(d,i)->{historyShop=stores.get(i);paintContent();}).show());
+        String[] labels=names.values().toArray(new String[0]);
+        button(content,"Store · "+names.get(historyShop),()->new AlertDialog.Builder(a).setTitle("Price history store").setItems(labels,(d,i)->{historyShop=stores.get(i);paintContent();}).show());
         List<JSONObject> points=new ArrayList<>();for(JSONObject r:Market.objects(rows))if(r.optJSONObject("shop")!=null && r.optJSONObject("shop").optInt("id")==historyShop)points.add(r);
         points.sort(Comparator.comparingLong(r->PriceChart.time(r)));
         new PriceChart(a,w,points).attach(content);

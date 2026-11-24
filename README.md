@@ -2,7 +2,7 @@
 
 RupeeRaid runs directly on Android 8.0 and newer. The phone connects to IsThereAnyDeal (ITAD), saves an encrypted cache and schedules its own price checks.
 
-**[Download the installable 1.9.4 development APK](https://github.com/SrinidhiSC/RupeeRaid-Android/releases/download/v1.9.4/RupeeRaid-1.9.4-dev.apk)**. This build uses the same development signing certificate as 1.8. Keep your production signing keystore outside the repository.
+**[Download the installable 2.0 development APK](https://github.com/SrinidhiSC/RupeeRaid-Android/releases/download/v2.0/RupeeRaid-2.0-dev.apk)**. This build uses the same development signing certificate as 1.8. Keep your production signing keystore outside the repository.
 
 ## Develop on another device
 
@@ -48,7 +48,7 @@ Set a wishlist-wide rule from the alerts screen to cover current and newly added
 | Any price drop | A store’s current verified price falls below its previous verified price for the same game. |
 | At or below a target price | A store’s price crosses the user’s threshold from above. The target accepts rupees and paise. |
 
-The first observation establishes the baseline. The same offer update produces one event per qualifying store and rule. Eligible alert stores in this build are Steam, Epic Games Store, Green Man Gaming and Microsoft Store. They have confirmed INR checkout support and known ITAD shop IDs. The phone requests `country=IN` and checks the current and original currency independently. ITAD may also return INR display values for shops whose checkout uses another currency. Those offers retain their purchase links and display **India pricing unavailable.** [Steam pricing](https://partner.steamgames.com/doc/store/pricing) · [Epic regional prices](https://dev.epicgames.com/docs/epic-games-store/store-presence/custom-price-tiers) · [Green Man Gaming terms](https://www.greenmangaming.com/terms-and-conditions) · [Microsoft India store](https://www.microsoft.com/en-in/store/most-popular/games/xbox)
+The first observation establishes the baseline. The same offer update produces one event per qualifying store and rule. Eligible alert stores in this build are Steam, Epic Games Store, Green Man Gaming and Microsoft Store. They have confirmed INR checkout support and known ITAD shop IDs. The phone requests `country=IN` and checks the current and original currency independently. ITAD may also return INR display values for shops whose checkout uses another currency. Game details shows those regional display prices, store lows and price history for all stores returned by ITAD. The checkout currency can differ. [Steam pricing](https://partner.steamgames.com/doc/store/pricing) · [Epic regional prices](https://dev.epicgames.com/docs/epic-games-store/store-presence/custom-price-tiers) · [Green Man Gaming terms](https://www.greenmangaming.com/terms-and-conditions) · [Microsoft India store](https://www.microsoft.com/en-in/store/most-popular/games/xbox)
 
 Android schedules a network-connected check approximately every 30 minutes. Battery management, network availability and force-stop can delay checks. A sale that starts and ends between observations can be missed. Without a personal key, monitoring uses the user's ITAD Waitlist. The alert dialog asks before adding a game. Removing the game from the Waitlist elsewhere pauses OAuth-only monitoring for that game.
 

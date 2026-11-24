@@ -40,6 +40,22 @@ public class PriceAlertsTest {
         assertEquals(1,alerts.observe(prices(quarter),now).length());
         alerts.disableUniversal();assertEquals(1,alerts.rules.length());
     }
+    @Test public void newWishlistGameInheritsRuleAndOnlyAlertsAfterBaseline() throws Exception {
+        PriceAlerts alerts=new PriceAlerts(memory);
+        alerts.configureUniversal(new JSONArray(),PriceAlerts.DROP,new JSONArray("[61]"));
+        alerts.reconcileUniversal(new JSONArray().put(MobileApiTest.game()));
+        assertFalse(PriceAlerts.gameSpecific(alerts.rules.getJSONObject(MobileApiTest.ID)));
+        assertEquals(0,alerts.observe(prices(quote(61,200,now-2,"")),now).length());
+        assertEquals(1,alerts.observe(prices(quote(61,100,now-1,"")),now).length());
+    }
+    @Test public void oldInboxEntriesExpireAcrossRestart() throws Exception {
+        PriceAlerts alerts=new PriceAlerts(memory);
+        alerts.inbox.put(new JSONObject().put("when",now-31L*86400));
+        alerts.inbox.put(new JSONObject().put("when",now-29L*86400));
+        alerts.save();
+        assertEquals(1,new PriceAlerts(memory).unread());
+        assertEquals(1,new JSONObject(memory.read("priceAlerts")).getJSONArray("inbox").length());
+    }
     @Test public void bellsOnlyRepresentExplicitGameRules() throws Exception {
         PriceAlerts alerts=new PriceAlerts(memory);
         JSONObject game=MobileApiTest.game();String id=game.getString("id");
@@ -112,7 +128,7 @@ public class PriceAlertsTest {
             if(url.contains("/history/") || url.contains("/bundles/")){assertTrue(url.contains("id="+id));return new JSONArray();}
             if(url.contains("/stats/"))return new JSONObject().put("count",18);
             assertEquals("POST",method);assertEquals(id,new JSONArray(body).getString(0));
-            if(url.contains("/storelow/"))assertTrue(url.contains("shops=61,16,36,48"));
+            if(url.contains("/storelow/"))assertFalse(url.contains("shops="));
             return new JSONArray().put(new JSONObject().put("id","another").put("subs",new JSONArray("[1]")))
                 .put(new JSONObject().put("id",id).put("lows",new JSONArray()).put("subs",new JSONArray()));
         });

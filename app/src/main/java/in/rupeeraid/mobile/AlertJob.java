@@ -34,20 +34,42 @@ public final class AlertJob extends JobService {
         manager.createNotificationChannel(new NotificationChannel(CHANNEL,"Game price alerts",NotificationManager.IMPORTANCE_DEFAULT));
         if(Build.VERSION.SDK_INT>=33 && c.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)return;
         if(!manager.areNotificationsEnabled())return;
-        boolean changed=false;
+        java.util.List<JSONObject> fresh=new java.util.ArrayList<>();
+        java.util.Map<String,String> games=new java.util.LinkedHashMap<>();
+        Notification.InboxStyle lines=new Notification.InboxStyle();
         for(JSONObject event:Market.objects(alerts.inbox)){
             if(event.optBoolean("delivered") || event.optBoolean("read"))continue;
-            String title=Market.text(event.getJSONObject("game"),"title"),id=event.getString("id");
-            Intent view=new Intent(c,MainActivity.class).setAction("in.rupeeraid.mobile.PRICE_ALERT").putExtra("alertId",id);
-            view.setData(android.net.Uri.fromParts("rupeeraid-alert",id,null));
-            PendingIntent pending=PendingIntent.getActivity(c,id.hashCode(),view,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-            Notification note=new Notification.Builder(c,CHANNEL).setSmallIcon(R.drawable.price_notification)
-                    .setContentTitle(label(event.getString("mode"))+" · "+title)
-                    .setContentText(MarketWidgets.money(event.getLong("amount"))+" at "+Market.text(event,"shop"))
-                    .setWhen(event.getLong("when")*1000).setOnlyAlertOnce(true).setAutoCancel(true).setContentIntent(pending).build();
-            manager.notify(id,1,note);event.put("delivered",true);changed=true;
+            JSONObject game=event.getJSONObject("game");
+            String title=Market.text(game,"title");
+            games.put(game.getString("id"),title);
+            if(fresh.size()<6)lines.addLine(label(event.getString("mode"))+" · "+title+" · "+MarketWidgets.money(event.getLong("amount")));
+            fresh.add(event);
         }
-        if(changed)alerts.save();
+        if(fresh.isEmpty())return;
+        JSONObject first=fresh.get(0);
+        java.util.List<String> titles=new java.util.ArrayList<>(games.values());
+        String summary=String.join(", ",titles.subList(0,Math.min(2,titles.size())));
+        if(titles.size()>2)summary+=" and "+(titles.size()-2)+" more";
+        Intent view=new Intent(c,MainActivity.class).setAction("in.rupeeraid.mobile.PRICE_ALERT");
+        String heading="Price alerts for "+titles.size()+(titles.size()==1?" game":" games");
+        if(fresh.size()==1){
+            heading=label(first.getString("mode"))+" · "+titles.get(0);
+            summary=MarketWidgets.money(first.getLong("amount"))+" at "+Market.text(first,"shop");
+            view.putExtra("alertId",first.getString("id"));
+        }
+        PendingIntent pending=PendingIntent.getActivity(c,JOB,view,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+        android.graphics.Bitmap badge=android.graphics.Bitmap.createBitmap(128,128,android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas=new android.graphics.Canvas(badge);
+        canvas.drawColor(android.graphics.Color.BLACK);
+        android.graphics.drawable.Drawable mark=c.getDrawable(R.drawable.logo_amoled_pitch);
+        mark.setBounds(8,8,120,120);mark.draw(canvas);
+        Notification note=new Notification.Builder(c,CHANNEL).setSmallIcon(R.drawable.logo_amoled_pitch).setLargeIcon(badge)
+            .setColor(android.graphics.Color.BLACK).setContentTitle(heading).setContentText(summary)
+            .setStyle(lines.setBigContentTitle(heading).setSummaryText(summary)).setTimeoutAfter(30L*24*60*60*1000)
+            .setAutoCancel(true).setContentIntent(pending).build();
+        manager.notify(JOB,note);
+        for(JSONObject event:fresh)event.put("delivered",true);
+        alerts.save();
     }
     @Override public boolean onStartJob(JobParameters params){
         final int run=++generation;

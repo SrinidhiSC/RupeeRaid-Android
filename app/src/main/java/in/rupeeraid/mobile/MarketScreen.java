@@ -593,7 +593,7 @@ final class MarketScreen {
     }
     private String defaultSort(){return a.getSharedPreferences("appearance",0).getString("defaultSort","Default");}
     private void chooseSort(String title,String selected,java.util.function.Consumer<String> apply){
-        chooseOption(title,selected,new String[]{"Default","Price","Discount","Title"},apply);
+        chooseOption(title,selected,new String[]{"Default","Recently updated","Price","Discount","Title"},apply);
     }
     private void chooseOption(String title,String selected,String[] choices,java.util.function.Consumer<String> apply){
         android.app.Dialog dialog=new android.app.Dialog(a);
@@ -798,14 +798,25 @@ final class MarketScreen {
         if(inbox==null || inbox.length()==0)addText(page,count==0?"Tap a bell in your Wishlist to set a game-specific alert.":"New price events will appear here after a selected store meets your rule.",14,MUTED,false,8);
         for(int i=inbox==null?0:inbox.length();i>0;i--){
             JSONObject e=inbox.optJSONObject(i-1);if(e==null || e.optJSONObject("game")==null)continue;
-            JSONObject game=e.optJSONObject("game");LinearLayout box=panel(page);
-            addText(box,AlertJob.label(Market.text(e,"mode"))+(e.optBoolean("read")?"":"  ·  Unread"),12,LILAC,true,0);
-            addText(box,Market.text(game,"title"),17,WHITE,true,3);
-            addText(box,money(e.optLong("amount"))+" at "+Market.text(e,"shop"),16,GREEN,true,5);
-            addText(box,"Previously "+money(e.optLong("previous"))+"  ·  "+DateFormat.getDateTimeInstance().format(new Date(e.optLong("when")*1000)),12,MUTED,false,4);
-            if(e.has("previousStoreLow"))addText(box,"Previously reported store low  ·  "+money(e.optLong("previousStoreLow")),12,MUTED,false,4);
-            pageAction(box,"View game",false,()->a.openEvent(Market.text(e,"id")));
-            String url=Market.text(e,"url");if(android.net.Uri.parse(url).getScheme()!=null && "https".equals(android.net.Uri.parse(url).getScheme()))pageAction(box,"Visit store  ↗",false,()->a.open(Uri.parse(url)));
+            String title=Market.text(e.optJSONObject("game"),"title"),price=money(e.optLong("amount"));
+            String label=AlertJob.label(Market.text(e,"mode")),shop=Market.text(e,"shop");
+            boolean unreadEvent=!e.optBoolean("read");
+            LinearLayout row=w.row();w.pad(row,10,0,10,0);row.setMinimumHeight(w.dp(48));page.addView(row);
+            TextView name=w.text((unreadEvent?"●  ":"")+title,14,WHITE,unreadEvent);
+            name.setSingleLine();name.setEllipsize(android.text.TextUtils.TruncateAt.END);row.addView(name,w.flex());
+            TextView value=w.text(price,14,LILAC,true);w.pad(value,8,0,0,0);row.addView(value);
+            String details=label+" · "+price+" at "+shop+"\nPreviously "+money(e.optLong("previous"))
+                +"\n"+DateFormat.getDateTimeInstance().format(new Date(e.optLong("when")*1000));
+            if(e.has("previousStoreLow"))details+="\nPreviously reported store low · "+money(e.optLong("previousStoreLow"));
+            final String message=details;
+            row.setContentDescription(title+", "+label+", "+price+" at "+shop+(unreadEvent?", unread":""));
+            w.action(row,w.shape(PANEL,6),()->{
+                AlertDialog.Builder dialog=new AlertDialog.Builder(a).setTitle(title).setMessage(message)
+                    .setPositiveButton("View game",(v,n)->a.openEvent(Market.text(e,"id"))).setNegativeButton("Close",null);
+                Uri url=Uri.parse(Market.text(e,"url"));
+                if("https".equals(url.getScheme()))dialog.setNeutralButton("Visit store",(v,n)->a.open(url));
+                dialog.show();
+            });
         }
     }
     private void settings(){

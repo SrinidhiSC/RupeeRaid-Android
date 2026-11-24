@@ -17,14 +17,11 @@ import org.json.JSONObject;
 final class Market {
     // ITAD shop IDs are stable across locales. See the storefront sources in the Android README.
     static final int[] INR_SHOPS = {61,16,36,48};
-    static String shopQuery(){
-        List<String> ids=new ArrayList<>();for(int id:INR_SHOPS)ids.add(String.valueOf(id));return String.join(",",ids);
-    }
     static String shopName(int id){
         switch(id){case 61:return "Steam";case 16:return "Epic Games Store";case 36:return "Green Man Gaming";case 48:return "Microsoft Store";default:return "";}
     }
     static long nativeAmount(JSONObject shop,JSONObject price){
-        if(shop==null || ("IN".equals(PricingRegion.current.country) && !nativeInr(shop)) || price==null || !PricingRegion.current.currency.equals(text(price,"currency")))return -1;
+        if(shop==null || price==null || !(price.opt("amountInt") instanceof Number) || !PricingRegion.current.currency.equals(text(price,"currency")))return -1;
         return price.optLong("amountInt",-1);
     }
     static boolean contains(JSONArray games,String id){
@@ -47,10 +44,6 @@ final class Market {
         return name.isEmpty() ? "IsThereAnyDeal member" : name;
     }
 
-    static boolean nativeInr(JSONObject shop) {
-        int id=shopId(shop);for(int known:INR_SHOPS)if(id==known)return true;
-        return false;
-    }
     static int shopId(JSONObject shop){
         int id=shop.optInt("id",-1);if(id>=0)return id;
         String name = text(shop,"name").toLowerCase(Locale.ROOT).replace(" ","");
@@ -199,7 +192,7 @@ final class Market {
         }
         List<JSONObject> rows = new ArrayList<>(unique.values());
         if ("search".equals(section) && "Default".equals(order)) rows.sort(Comparator.comparing(g->best(g,platform)==null));
-        if ("deals".equals(section) && "Default".equals(order)) {
+        if ("Recently updated".equals(order) || ("deals".equals(section) && "Default".equals(order))) {
             rows.sort(Comparator.comparingLong(g->{
                 JSONObject offer = best(g,platform);
                 return offer == null ? 0 : -offer.optLong("reportedAt");

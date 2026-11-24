@@ -27,7 +27,7 @@ final class MobileApi {
     private static final int WINDOW = 300, BATCH = 200;
     static final int CACHE_SECONDS = 3600;
     void beginRefresh() throws Exception { store.write("cacheGeneration",UUID.randomUUID().toString()); }
-    String generation() { return store.read("cacheGeneration"); }
+    String generation() { return "regional-offers-v2:"+store.read("cacheGeneration"); }
     static boolean fresh(long saved,long time) {
         return saved>0 && time>=saved && time-saved<CACHE_SECONDS;
     }

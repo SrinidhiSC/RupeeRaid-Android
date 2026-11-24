@@ -69,7 +69,7 @@ public class MobileApiTest {
         JSONArray offers=personal.getJSONArray("wishlist").getJSONObject(0).getJSONArray("offers");
         assertEquals(3,offers.length());assertEquals("INDIA",offers.getJSONObject(0).getString("voucher"));
         assertTrue(offers.getJSONObject(0).getString("url").endsWith("affiliate=test"));
-        assertFalse(offers.getJSONObject(1).has("paise"));assertFalse(offers.getJSONObject(2).has("paise"));
+        assertTrue(offers.getJSONObject(1).has("paise"));assertFalse(offers.getJSONObject(2).has("paise"));
         api.dashboard();assertEquals(16,calls.size());api.changeWaitlist(ID,true);assertFalse(memory.containsKey("lists"));
         api.setKey("");assertTrue(memory.read("personalKey").isEmpty());
     }
@@ -160,7 +160,7 @@ public class MobileApiTest {
         assertTrue(Market.historical(Market.best(item,"All")));assertEquals(xbox,Market.best(item,"Xbox"));
         assertTrue(Market.rows(data,"lows","Xbox","","Default").isEmpty());assertTrue(Market.rows(data,"deals","Switch","","Price").isEmpty());
         assertEquals(1,Market.rows(data,"free","PC","","Default").size());assertNull(Market.best(item,"PlayStation"));
-        assertFalse(Market.nativeInr(new JSONObject().put("id",47).put("name","Steam")));
+        assertEquals(139084,Market.nativeAmount(new JSONObject().put("id",20).put("name","GameBillet"),new JSONObject().put("currency","INR").put("amountInt",139084)));
         assertEquals("",Market.art(game().put("assets",new JSONObject().put("boxart","https://example.org/pic")),"boxart"));
     }
     @Test public void currentPriceDoesNotDependOnReferencePrice() throws Exception {
@@ -182,7 +182,12 @@ public class MobileApiTest {
         assertEquals(3,rows.size());assertEquals("Game Enhanced",rows.get(0).getString("title"));
         assertNull(Market.best(rows.get(1),Market.ALL));
     }
-    @Test public void periodRecordsRequireNativeStoreAndDatedMatch() throws Exception {
+    @Test public void lowRequiresStoreEvidenceAndResolvesWhenHistoryArrives() throws Exception {
+        JSONObject record=new JSONObject("{\"shop\":{\"id\":20,\"name\":\"GameBillet\"},\"price\":{\"amountInt\":106352,\"currency\":\"INR\"},\"timestamp\":\"2025-07-25T18:45:31+05:30\"}");
+        PriceRecords.Low global=new PriceRecords(game(),record,null,null).period(0);
+        assertEquals(106352,global.amount);
+        assertEquals("GameBillet",global.store);
+        assertEquals(record.getString("timestamp"),global.time);
         java.time.Instant now=java.time.Instant.now();
         JSONObject shop=new JSONObject().put("id",61).put("name","Steam");
         JSONObject historical=new JSONObject().put("amountInt",25000).put("currency","INR");
@@ -191,9 +196,20 @@ public class MobileApiTest {
         JSONObject low=new JSONObject().put("shop",shop).put("price",historical).put("timestamp",now.minusSeconds(400L*86400).toString());
         JSONObject event=new JSONObject().put("shop",shop).put("deal",new JSONObject().put("price",period)).put("timestamp",now.minusSeconds(120L*86400).toString());
         PriceRecords records=new PriceRecords(game,low,null,new JSONArray().put(event));
-        assertEquals(25000,records.period(0).amount);assertEquals("Steam",records.period(1).store);assertNull(records.period(2));
+        assertEquals(25000,records.period(0).amount);assertEquals("Steam",records.period(1).store);
+        assertEquals(39000,records.period(2).amount);assertEquals(event.getString("timestamp"),records.period(2).time);
+        JSONObject withdrawn=new JSONObject().put("shop",shop).put("deal",JSONObject.NULL)
+                .put("timestamp",now.minusSeconds(100L*86400).toString());
+        PriceRecords ended=new PriceRecords(game,low,null,new JSONArray().put(withdrawn).put(event));
+        assertNull(ended.period(2));
+        withdrawn.put("timestamp",now.minusSeconds(80L*86400).toString());
+        PriceRecords overlapping=new PriceRecords(game,low,null,new JSONArray().put(withdrawn).put(event));
+        assertEquals("Steam",overlapping.period(2).store);
+        assertEquals(event.getString("timestamp"),overlapping.period(2).time);
         event.put("shop",new JSONObject().put("id",999).put("name","FX store"));
-        assertNull(new PriceRecords(game,low,null,new JSONArray().put(event)).period(1));
+        assertEquals("FX store",new PriceRecords(game,low,null,new JSONArray().put(event)).period(1).store);
+        period.put("currency","USD");
+        assertNull(new PriceRecords(game,low,null,new JSONArray().put(event)).period(2));
     }
     @Test public void onlineSearchConfirmsDelistedPcIdsAndCachesLookup() throws Exception {
         Memory memory=new Memory();memory.put("personalKey","private");List<String> calls=new ArrayList<>();

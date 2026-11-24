@@ -18,6 +18,13 @@ final class PriceAlerts {
         if(document.isNull("inbox"))document.put("inbox",new JSONArray());
         if(document.optJSONObject("universal")!=null && document.isNull("universalExclusions"))document.put("universalExclusions",new JSONArray());
         rules=document.getJSONObject("rules");inbox=document.getJSONArray("inbox");
+        long cutoff=System.currentTimeMillis()/1000-30L*24*60*60;
+        int before=inbox.length();
+        for(int i=before-1;i>=0;i--){
+            JSONObject event=inbox.optJSONObject(i);
+            if(event==null || event.optLong("when")<=cutoff)inbox.remove(i);
+        }
+        if(inbox.length()!=before)save();
     }
     static boolean includes(JSONArray stores,int shop){
         if(stores!=null)for(int i=0;i<stores.length();i++)if(stores.optInt(i,-1)==shop)return true;
