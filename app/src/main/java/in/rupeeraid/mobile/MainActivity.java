@@ -131,6 +131,29 @@ public final class MainActivity extends Activity {
         catch(ActivityNotFoundException e){notice("Install a browser to open this link.");}
     }
     void notice(String message){note=message;screen.status();}
+    void checkForUpdates(){
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("App updates")
+                .setMessage("Checking GitHub for a newer release…").setNegativeButton("Close",null).show();
+        io.execute(()->{
+            String message;String available=null;
+            try{
+                String tag=AppUpdate.latestTag();
+                if(AppUpdate.compare(tag,BuildConfig.VERSION_NAME)>0){
+                    available=tag;message="RupeeRaid "+tag+" is available. Installed version: "+BuildConfig.VERSION_NAME+".";
+                }else message="You’re up to date. Installed version: "+BuildConfig.VERSION_NAME+".";
+            }catch(java.io.IOException error){
+                message=error.getClass()==java.io.IOException.class && error.getMessage()!=null?error.getMessage():"Couldn’t reach GitHub. Check your connection and try again.";
+            }catch(Exception error){message="Couldn’t read the GitHub release version. Try again later.";}
+            final String result=message,tag=available;
+            runOnUiThread(()->{
+                if(isFinishing() || isDestroyed() || !dialog.isShowing())return;
+                if(tag==null){dialog.setMessage(result);return;}
+                dialog.dismiss();
+                new AlertDialog.Builder(this).setTitle("Update available").setMessage(result)
+                        .setNegativeButton("Later",null).setPositiveButton("View release",(d,i)->open(Uri.parse(AppUpdate.RELEASES+"/tag/"+tag))).show();
+            });
+        });
+    }
     private interface Work {JSONObject execute() throws Exception;}
     private void run(Work work,Consumer<JSONObject> done){
         if(busy)return;

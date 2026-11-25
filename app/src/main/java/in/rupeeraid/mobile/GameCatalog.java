@@ -28,7 +28,7 @@ final class GameCatalog {
         if(prior.has("data") && MobileApi.fresh(prior.optLong("saved"),now)
                 && generation.equals(prior.optString("generation")))return prior;
         try{
-            Object content=fetch(id,game.getString("title"),section);
+            Object content=fetch(id,game,section);
             JSONObject result=new JSONObject().put("data",content).put("generation",generation).put("saved",System.currentTimeMillis()/1000);
             storage.write(file,result.toString());return result;
         }catch(Exception ex){
@@ -36,9 +36,21 @@ final class GameCatalog {
             return prior.put("message",message).put("needsKey",ex instanceof MobileApi.Failure && ((MobileApi.Failure)ex).status==428);
         }
     }
-    private Object fetch(String id,String title,String section) throws Exception {
+    private Object fetch(String id,JSONObject game,String section) throws Exception {
+        String title=game.getString("title");
         String gid="?id="+id,body=new JSONArray().put(id).toString();
         switch(section){
+            case "editorial":return PublicGameDetails.editorial(id,Market.text(game,"slug"));
+            case "relations":{
+                JSONArray items=PublicGameDetails.relations(id,Market.text(game,"slug"));
+                String key=storage.read("personalKey");
+                if(items.length()>0 && !key.isEmpty()){
+                    try{return api.priceCatalog(items,key);}
+                    catch(java.io.IOException unavailable){/* The catalog rows also work without prices. */}
+                }
+                return items;
+            }
+            case "memberships":return memberships(game.optInt("appid"));
             case "about":return api.gameData("/games/info/v2"+gid,"GET",null);
             case "stats":return api.gameData("/stats/waitlist/v1"+gid+"&country="+PricingRegion.current.country,"GET",null);
             case "lows":return matching((JSONArray)api.gameData("/games/storelow/v2?country="+PricingRegion.current.country,"POST",body),id,"lows");
@@ -76,6 +88,30 @@ final class GameCatalog {
             default:throw new IllegalArgumentException("Unknown game section");
         }
     }
+    private JSONArray memberships(int appid) throws Exception {
+        JSONArray rows=PublicGameDetails.packages(appid,PricingRegion.current.country);
+        if(rows.length()==0)return rows;
+        JSONArray paths=new JSONArray(),mapped=new JSONArray();
+        for(JSONObject row:Market.objects(rows))paths.put(row.getString("steamPath"));
+        try{
+            JSONObject ids=(JSONObject)api.gameData("/lookup/id/shop/61/v1","POST",paths.toString());
+            for(JSONObject row:Market.objects(rows)){
+                String gid=Market.text(ids,row.getString("steamPath"));
+                if(!gid.isEmpty()){row.put("id",gid);mapped.put(row);}
+            }
+            if(mapped.length()>0){
+                java.util.Map<String,JSONObject> quoted=new java.util.HashMap<>();
+                for(JSONObject row:Market.objects(api.priceCatalog(mapped,storage.read("personalKey"))))
+                    quoted.put(row.getString("id"),row);
+                for(JSONObject row:Market.objects(mapped)){
+                    JSONObject quote=quoted.get(row.getString("id"));
+                    if(quote!=null)row.put("offers",quote.optJSONArray("offers"));
+                }
+            }
+        }catch(java.io.IOException unavailable){/* Steam membership and links remain usable offline from cache. */}
+        return rows;
+    }
+
     private static JSONArray matching(JSONArray rows,String id,String field){
         for(JSONObject row:Market.objects(rows))if(id.equals(Market.text(row,"id")) && row.optJSONArray(field)!=null)return row.optJSONArray(field);
         return new JSONArray();

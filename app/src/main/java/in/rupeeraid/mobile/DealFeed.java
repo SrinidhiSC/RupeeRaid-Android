@@ -17,15 +17,16 @@ final class DealFeed extends BaseAdapter {
     private final Consumer<JSONObject> open;
     private final List<Object> items=new ArrayList<>();
     private final String platform;
+    private final java.util.Set<String> drm;
     private final java.util.Map<JSONObject,RowData> rendered=new java.util.IdentityHashMap<>();
     private static final class RowData{
         final JSONObject offer;
         final String art,thumbnail,price,original;
         final Market.LowPeriod period;
-        RowData(JSONObject game,String platform){
+        RowData(JSONObject game,String platform,java.util.Set<String> drm){
             art=Market.art(game,"banner300","banner145","banner400","boxart");
             thumbnail=Market.art(game,"banner145");
-            offer=Market.best(game,platform);period=Market.lowPeriod(offer);
+            offer=Market.best(game,platform,drm);period=Market.lowPeriod(offer);
             price=offer==null?"—":money(offer.optLong("paise"));
             original=offer!=null && offer.has("regular")?"Original "+money(offer.optLong("regular")):"Original price unavailable";
         }
@@ -39,7 +40,7 @@ final class DealFeed extends BaseAdapter {
     }
     DealFeed(MarketWidgets widgets,String platform,Consumer<JSONObject> open,
              java.util.function.Predicate<JSONObject> alertEnabled, Consumer<JSONObject> editAlert) {
-        this.w=widgets;this.platform=platform;this.open=open;this.alertEnabled=alertEnabled;this.editAlert=editAlert;
+        this.drm=DrmFilter.saved(widgets.context);this.w=widgets;this.platform=platform;this.open=open;this.alertEnabled=alertEnabled;this.editAlert=editAlert;
     }
     void add(View header) { items.add(header); }
     void addLibrary(List<JSONObject> games){
@@ -119,7 +120,7 @@ final class DealFeed extends BaseAdapter {
             game=value;title.setText(Market.text(game,"title"));
             RowData display=rendered.get(game);
             if(display==null || display.offer!=null && !Market.active(display.offer,System.currentTimeMillis()/1000)){
-                display=new RowData(game,platform);rendered.put(game,display);
+                display=new RowData(game,platform,drm);rendered.put(game,display);
             }
             w.rowArt(art,display.art,display.thumbnail);
             JSONObject offer=display.offer;

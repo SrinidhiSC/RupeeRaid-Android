@@ -39,6 +39,7 @@ final class MarketScreen {
     private String section="home",query="",order="Default",listKey="",headerMode="",returnFromSearch="home";
     private JSONObject selected;
     private GamePage gamePage;
+    private Set<String> drm;
     private final Deque<JSONObject> trail=new ArrayDeque<>();
     private String restoredId="",restoredTab="";
     private JSONArray catalogResults=new JSONArray();
@@ -114,7 +115,7 @@ final class MarketScreen {
         });
     }
     MarketScreen(MainActivity activity){
-        a=activity;section=startupTab();order=defaultSort();w=new MarketWidgets(a);root=w.column();root.setBackgroundColor(BAR);
+        a=activity;drm=DrmFilter.saved(a);section=startupTab();order=defaultSort();w=new MarketWidgets(a);root=w.column();root.setBackgroundColor(BAR);
         root.setOnApplyWindowInsetsListener((v,insets)->{
             v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),
                     insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());
@@ -546,7 +547,7 @@ final class MarketScreen {
         boolean grid=section.equals("library") && a.getSharedPreferences("appearance",0).getBoolean("libraryGrid",true);
         if(section.equals("library")){
             long total=0;int priced=0;
-            for(JSONObject game:entries){JSONObject q=Market.best(game,Market.ALL);
+            for(JSONObject game:entries){JSONObject q=Market.best(game,Market.ALL,drm);
                 if(q!=null && q.optLong("regular",-1)>=0){total+=q.optLong("regular");priced++;}}
             LinearLayout stats=w.row();w.pad(stats,16,3,16,10);
             for(String value:new String[]{"Owned games\n"+entries.size()+" PC","Retail value · "+priced+" priced\n"+(priced==0?"—":total==0?"0 "+PricingRegion.current.currency:money(total))}){
@@ -579,7 +580,7 @@ final class MarketScreen {
     }
     private List<JSONObject> rows(String key,String sort){
         boolean hideOwned=a.getSharedPreferences("appearance",0).getBoolean("hideOwned",false);
-        return Market.rows(a.data,key,Market.ALL,"",sort,hideOwned);
+        return Market.rows(a.data,key,Market.ALL,"",sort,hideOwned,drm);
     }
     private List<JSONObject> searchRows(){
         LinkedHashMap<String,JSONObject> matches=new LinkedHashMap<>();
@@ -589,7 +590,7 @@ final class MarketScreen {
         if("Default".equals(order))return rows;
         JSONObject wrap=new JSONObject();
         try{wrap.put("results",new JSONArray(rows));}catch(Exception ignored){}
-        return Market.rows(wrap,"search",Market.ALL,"",order);
+        return Market.rows(wrap,"search",Market.ALL,"",order,false,drm);
     }
     private String emptyMessage(){
         if(a.data.optLong("saved")==0)return a.busy?"Syncing your IsThereAnyDeal account…":"Refresh to load your games.";
@@ -619,7 +620,7 @@ final class MarketScreen {
         String countLabel=count+(count==1?" game":" games");
         if(section.equals("wishlist")){
             int sale=0;long saved=0;
-            for(JSONObject game:Market.objects(a.data.optJSONArray("wishlist"))){JSONObject offer=Market.best(game,Market.ALL);
+            for(JSONObject game:Market.objects(a.data.optJSONArray("wishlist"))){JSONObject offer=Market.best(game,Market.ALL,drm);
                 if(offer!=null && offer.optLong("regular",-1)>offer.optLong("paise",-1)){sale++;saved+=offer.optLong("regular")-offer.optLong("paise");}}
             if(sale>0)countLabel+="  ·  "+sale+" on sale · Save "+money(saved);
         }
@@ -727,7 +728,7 @@ final class MarketScreen {
         LinearLayout cards=w.row();w.pad(cards,14,0,4,4);rail.addView(cards);
         int width=Math.min(216,Math.max(150,(int)(a.getResources().getConfiguration().screenWidthDp*.44)));
         for(int i=0;i<Math.min(9,games.size());i++){
-            JSONObject game=games.get(i),quote=Market.best(game,Market.ALL);
+            JSONObject game=games.get(i),quote=Market.best(game,Market.ALL,drm);
             LinearLayout card=w.column();card.setClipToOutline(true);w.action(card,w.shape(PANEL,20),()->detail(game));
             FrameLayout frame=new FrameLayout(a);card.addView(frame,new LinearLayout.LayoutParams(-1,w.dp((int)(width*1.5))));
             ImageView art=w.artView();frame.addView(art,new FrameLayout.LayoutParams(-1,-1));w.art(art,game,"boxart","banner400","banner300");
@@ -901,6 +902,8 @@ final class MarketScreen {
         LinearLayout region=settingsGroup(page,"Region & store filters");
         detailRow(region,"Pricing region",PricingRegion.current.name()+" · "+PricingRegion.current.currency,
                 "Prices and alert history follow this region.",WHITE,this::chooseRegion);
+        detailRow(region,"Universal DRM filter",DrmFilter.label(drm),"Choose activation platforms for deal prices and game offers.",WHITE,()->
+            DrmFilter.choose(a,drm,values->{DrmFilter.save(a,values);drm=values;render(false);}));
         settingSwitch(region,"Hide owned games","Skip games from your Library in discovery feeds","hideOwned",false);
         LinearLayout notify=settingsGroup(page,"Notifications");
         settingRow(notify,"Wishlist-wide alerts","",()->AlertEditor.openUniversal(a));
@@ -926,6 +929,7 @@ final class MarketScreen {
             prefs.edit().putString("defaultSort",choice).apply();order=choice;render(false);
         }));
         LinearLayout sync=settingsGroup(page,"Storage & sync");
+        settingRow(sync,"Check for updates","v"+BuildConfig.VERSION_NAME,a::checkForUpdates);
         settingSwitch(sync,"Cache game images","Keep artwork on this device","cacheImages",true);
         detailRow(sync,"Clear image cache","","Remove downloaded game artwork.",WHITE,a::clearArtwork);
         long saved=a.data.optLong("saved");

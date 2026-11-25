@@ -115,12 +115,15 @@ final class Market {
     }
 
     static JSONObject best(JSONObject game, String platform) {
+        return best(game,platform,Collections.emptySet());
+    }
+    static JSONObject best(JSONObject game,String platform,Set<String> drm){
         JSONObject lowest = null;
         JSONArray offers = game.optJSONArray("offers");
         long now = System.currentTimeMillis()/1000;
         if (offers != null) for (int i=0; i<offers.length(); i++) {
             JSONObject row = offers.optJSONObject(i);
-            if (row == null || row.isNull("paise") || !active(row,now) || !supports(row,platform)) continue;
+            if (row == null || row.isNull("paise") || !active(row,now) || !supports(row,platform) || !DrmFilter.matches(row,drm)) continue;
             if (lowest == null || row.optLong("paise") < lowest.optLong("paise")) lowest = row;
         }
         return lowest;
@@ -164,6 +167,9 @@ final class Market {
         return rows(data,section,platform,query,order,false);
     }
     static List<JSONObject> rows(JSONObject data,String section,String platform,String query,String order,boolean hideOwned) {
+        return rows(data,section,platform,query,order,hideOwned,Collections.emptySet());
+    }
+    static List<JSONObject> rows(JSONObject data,String section,String platform,String query,String order,boolean hideOwned,Set<String> drm) {
         Map<String,JSONObject> unique = new LinkedHashMap<>();
         String[] sources;
         switch (section) {
@@ -181,31 +187,32 @@ final class Market {
             if (!text(game,"title").toLowerCase(Locale.ROOT).contains(term)) continue;
             if(hidden.contains(text(game,"id")) || !pcEdition(game))continue;
             if (!ALL.equals(platform) && offers(game,platform).isEmpty()) continue;
-            JSONObject quote = best(game,platform);
+            JSONObject quote = best(game,platform,drm);
+            if(!drm.isEmpty() && quote==null && ("deals".equals(section) || "trending".equals(section)))continue;
             if("budget".equals(section) && (quote==null || quote.optLong("paise",-1)<0 || quote.optLong("paise")>=30000))continue;
             if ("free".equals(section) && (quote == null || quote.optLong("paise") != 0)) continue;
             if ("lows".equals(section) && !historical(quote)) continue;
             if ("best".equals(section) && (quote == null || quote.optInt("cut") == 0)) continue;
             String id=text(game,"id");
             JSONObject existing=unique.get(id);
-            if(existing==null || best(existing,platform)==null && quote!=null)unique.put(id,game);
+            if(existing==null || best(existing,platform,drm)==null && quote!=null)unique.put(id,game);
         }
         List<JSONObject> rows = new ArrayList<>(unique.values());
-        if ("search".equals(section) && "Default".equals(order)) rows.sort(Comparator.comparing(g->best(g,platform)==null));
+        if ("search".equals(section) && "Default".equals(order)) rows.sort(Comparator.comparing(g->best(g,platform,drm)==null));
         if ("Recently updated".equals(order) || ("deals".equals(section) && "Default".equals(order))) {
             rows.sort(Comparator.comparingLong(g->{
-                JSONObject offer = best(g,platform);
+                JSONObject offer = best(g,platform,drm);
                 return offer == null ? 0 : -offer.optLong("reportedAt");
             }));
         }
         if ("Title".equals(order)) rows.sort(Comparator.comparing(g->text(g,"title"),String.CASE_INSENSITIVE_ORDER));
         if ("Price".equals(order)) rows.sort(Comparator.comparingLong(g->{
-            JSONObject offer = best(g,platform);
+            JSONObject offer = best(g,platform,drm);
             return offer == null ? Long.MAX_VALUE : offer.optLong("paise");
         }));
         if ("Discount".equals(order) || ("best".equals(section) && "Default".equals(order))) {
             rows.sort(Comparator.comparingInt(g->{
-                JSONObject offer = best(g,platform);
+                JSONObject offer = best(g,platform,drm);
                 return offer == null ? 1 : -offer.optInt("cut");
             }));
         }

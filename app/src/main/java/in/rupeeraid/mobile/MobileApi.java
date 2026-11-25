@@ -233,7 +233,7 @@ final class MobileApi {
         }catch(Exception invalid){return null;}
         long expiry=expiry(entry);if(expiry<0 || expiry>0 && expiry<=now())return null;
         JSONObject out=new JSONObject().put("url",link).put("shop",shop.getString("name"))
-            .put("shopId",Market.shopId(shop)).put("platforms",entry.optJSONArray("platforms"))
+            .put("shopId",Market.shopId(shop)).put("platforms",entry.optJSONArray("platforms")).put("drm",entry.optJSONArray("drm"))
             .put("expiry",expiry).put("updated",entry.getString("timestamp")).put("reportedAt",reportedAt);
         long amount=Market.nativeAmount(shop,price);
         if(amount<0)return out;
@@ -254,7 +254,7 @@ final class MobileApi {
         long storeLow=Market.nativeAmount(shop,entry.optJSONObject("storeLow"));
         if(storeLow>=0){out.put("storeLow",storeLow);if(amount>storeLow)flag="";}
         return out.put("paise",amount).put("flag",flag).put("voucher",entry.opt("voucher"))
-                .put("country",PricingRegion.current.country).put("currency",Market.text(price,"currency")).put("drm",entry.optJSONArray("drm"));
+                .put("country",PricingRegion.current.country).put("currency",Market.text(price,"currency"));
     }
     private static void saveLow(JSONObject offer,String label,JSONObject value) throws Exception{
         if(value!=null && PricingRegion.current.currency.equals(Market.text(value,"currency")) && value.opt("amountInt") instanceof Number

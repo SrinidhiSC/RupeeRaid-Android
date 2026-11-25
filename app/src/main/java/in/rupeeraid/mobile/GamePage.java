@@ -11,7 +11,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import static in.rupeeraid.mobile.MarketWidgets.*;
 
-/** A single game keeps its selected tab and store filter across foreground updates. */
+/** A single game keeps its selected tab and DRM filter across foreground updates. */
 final class GamePage {
     private static final String[][] TABS={{"offers","Offers"},{"history","Price history"},
             {"series","Series"},{"subscriptions","Subscriptions"},{"giveaways","Giveaways"},{"about","About"},{"stats","Community"}};
@@ -24,8 +24,10 @@ final class GamePage {
     private final Set<String> waiting=new HashSet<>();
     private final Map<String,Integer> visible=new HashMap<>();
     private JSONObject game;
-    private String platform,filter="",historyKey="history";
-    private TextView heroInfo;
+    private String platform,historyKey="history";
+    private final Set<String> selectedDrm=new LinkedHashSet<>(),expandedBundles=new HashSet<>();
+    private LinearLayout steamRating;
+    private TextView heroInfo,heroShop;
     private LinearLayout hero,offerHeader,actions;
     private View heroLoading;
     private ImageView cover;
@@ -35,7 +37,7 @@ final class GamePage {
     private LinearLayout content,tabRow;
     private ScrollView scroll;
     private HorizontalScrollView tabs;
-    GamePage(MarketScreen screen,MainActivity a,MarketWidgets w,String id){this.screen=screen;this.a=a;this.w=w;this.id=id;}
+    GamePage(MarketScreen screen,MainActivity a,MarketWidgets w,String id){this.screen=screen;this.a=a;this.w=w;this.id=id;selectedDrm.addAll(DrmFilter.saved(a));}
     void remember(){if(scroll!=null){scrollY=scroll.getScrollY();tabX=tabs==null?0:tabs.getScrollX();}}
     void mount(LinearLayout page,JSONObject game,String platform,String origin){
         this.game=game;this.platform=platform;scroll=(ScrollView)page.getParent();
@@ -46,14 +48,19 @@ final class GamePage {
         hero.setVisibility(View.INVISIBLE);
         heroLoading=w.loadingRows("Loading game overview");heroLoading.setBackground(w.shape(PANEL,20));
         heroFrame.addView(heroLoading,new FrameLayout.LayoutParams(-1,-1));
-        cover=w.artView();cover.setClipToOutline(true);cover.setBackground(w.shape(PANEL,14));
-        hero.addView(cover,new LinearLayout.LayoutParams(w.dp(104),w.dp(150)));
-        LinearLayout head=w.column();w.pad(head,14,3,0,0);hero.addView(head,w.flex());
+        FrameLayout artwork=new FrameLayout(a);artwork.setBackground(w.shape(PANEL,14));artwork.setClipToOutline(true);
+        hero.addView(artwork,new LinearLayout.LayoutParams(w.dp(104),w.dp(150)));
+        cover=w.artView();artwork.addView(cover,new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout head=w.column();w.pad(head,14,3,0,0);hero.addView(head,new LinearLayout.LayoutParams(0,-1,1));
         String type=Market.text(game,"type");
-        line(head,PricingRegion.current.name().toUpperCase(Locale.ROOT)+"  /  "+(type.isEmpty()?"GAME":type.toUpperCase(Locale.ROOT))+"  ·  PC",11,LILAC,true,1);
+        line(head,PricingRegion.current.name().toUpperCase(Locale.ROOT)+" / "+(type.isEmpty()?"GAME":type.toUpperCase(Locale.ROOT))+" · PC",10,LILAC,true,0);
         line(head,Market.text(game,"title"),24,WHITE,true,5);
-        heroInfo=w.text("",12,MUTED,false);w.pad(heroInfo,0,6,0,0);head.addView(heroInfo);showHeroInfo();
+        heroInfo=w.text("",12,MUTED,false);w.pad(heroInfo,0,6,0,0);head.addView(heroInfo);
         offerHeader=w.column();head.addView(offerHeader);
+        head.addView(new View(a),new LinearLayout.LayoutParams(1,0,1));
+        LinearLayout footer=w.row();footer.setGravity(Gravity.BOTTOM);head.addView(footer);
+        heroShop=w.text("",12,MUTED,false);w.pad(heroShop,0,4,5,0);footer.addView(heroShop,w.flex());
+        steamRating=w.row();footer.addView(steamRating);showHeroInfo();
         actions=w.row();w.pad(actions,0,13,0,8);page.addView(actions);
         bindGameControls();
         tabs=new HorizontalScrollView(a);tabs.setHorizontalScrollBarEnabled(false);tabRow=w.row();tabs.addView(tabRow);
@@ -73,15 +80,15 @@ final class GamePage {
     private void bindGameControls(){
         LinearLayout head=offerHeader;
         head.removeAllViews();actions.removeAllViews();
-        JSONObject lead=Market.best(game,platform);
+        JSONObject lead=Market.best(game,platform,selectedDrm);
         if(lead!=null){
             LinearLayout chips=w.row();w.pad(chips,0,8,0,0);head.addView(chips);
             Market.LowPeriod tier=Market.lowPeriod(lead);
             if(tier!=Market.LowPeriod.NONE){TextView mark=w.badge(tier.badge,false);w.tierBadge(mark,tier,true);w.addBadge(chips,mark);}
             if(Market.storeLow(lead))w.addBadge(chips,w.badge("S",true));
             if(lead.optInt("cut")>0){TextView cut=w.badge("−"+lead.optInt("cut")+"%",false);w.tierBadge(cut,tier,false);w.addBadge(chips,cut);}
-            line(head,Market.text(lead,"shop"),12,MUTED,false,4);
         }
+        heroShop.setText(Market.text(lead,"shop"));
         boolean wished=member("wishlist"),owned=member("library"),ignored=member("ignored");
         boolean notifying=a.gameRule(id)!=null;
         action(actions,wished?"heart-on":"heart",wished?"Wishlisted":"Wishlist",wished,()->change("wishlist",!wished));
@@ -99,6 +106,12 @@ final class GamePage {
         JSONObject info=info();String release=Market.text(info,"releaseDate");String developer=info==null?"":names(info.optJSONArray("developers"));
         if(developer.contains(" · "))developer=developer.substring(0,developer.indexOf(" · "));
         String metadata=String.join("  ·  ",nonempty(release.isEmpty()?"":release.substring(0,Math.min(4,release.length())),developer));
+        steamRating.removeAllViews();
+        if(info!=null)for(JSONObject review:Market.objects(info.optJSONArray("reviews"))){
+            if("Steam".equalsIgnoreCase(Market.text(review,"source")) && validScore(review)){
+                rating(steamRating,review,true);break;
+            }
+        }
         heroInfo.setText(metadata);heroInfo.setVisibility(metadata.isEmpty()?View.GONE:View.VISIBLE);w.ellipsis(heroInfo,2);
         if(a.personal && !loaded.containsKey("about"))return;
         String portrait=info==null?"":Market.art(info,"boxart");
@@ -163,7 +176,7 @@ final class GamePage {
             button(content,"Period  ·  "+options[Arrays.asList(keys).indexOf(historyKey)],()->new AlertDialog.Builder(a)
                 .setTitle("Price history period").setItems(options,(d,i)->{historyKey=keys[i];paintContent();}).show());
         }
-        if(active.equals("about"))button(content,"Your ITAD game note",()->a.editGameNote(game));
+        if(active.equals("about") && info()!=null && !loaded.containsKey("editorial"))request("editorial");
         String key=active.equals("history")?historyKey:active;
         JSONObject page=loaded.get(key);
         if(page==null){
@@ -184,18 +197,29 @@ final class GamePage {
             case "history":history(rows);break;
         }
         if(data instanceof JSONObject){if(active.equals("about"))about((JSONObject)data);else stats((JSONObject)data);}
+        if(active.equals("stats") && !(data instanceof JSONObject) && info()!=null)stats(new JSONObject());
         if(data!=null && page.optLong("saved")>0)line(content,"Saved "+age(Instant.ofEpochSecond(page.optLong("saved")).toString()).toLowerCase(Locale.ROOT),11,MUTED,false,14);
         if(active.equals("series"))button(content,"Search other titles",()->screen.relatedSearch(GameCatalog.seriesQuery(Market.text(game,"title"))));
     }
     private void request(String key){
         if(!waiting.add(key))return;
         int generation=requestGeneration;
-        a.gameSection(game,key,result->{
+        boolean supplement=key.equals("editorial") || key.equals("memberships") || key.equals("relations");
+        JSONObject target=game;
+        if(supplement && info()!=null){
+            target=new JSONObject();
+            try{
+                target.put("id",id).put("title",game.getString("title")).put("appid",info().optInt("appid"));
+                String slug=Market.text(info(),"slug");
+                target.put("slug",slug.isEmpty()?Market.text(game,"slug"):slug);
+            }catch(org.json.JSONException invalid){target=game;}
+        }
+        a.gameSection(target,key,result->{
             if(generation!=requestGeneration)return;
             waiting.remove(key);loaded.put(key,result);
             if(!screen.isGame(this))return;
             if(key.equals("about"))showHeroInfo();
-            if(!redrawQueued && (tab.equals("offers") || tab.equals(key) || tab.equals("history") && historyKey.equals(key))){
+            if(!redrawQueued && (tab.equals("offers") || tab.equals(key) || tab.equals("about") && key.equals("editorial") || tab.equals("stats") && key.equals("about") || tab.equals("history") && historyKey.equals(key))){
                 redrawQueued=true;
                 android.view.Choreographer.getInstance().postFrameCallback(time->{
                     redrawQueued=false;if(screen.isGame(this))paintContent();
@@ -211,8 +235,8 @@ final class GamePage {
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=w.dp(7);box.addView(w.button(label,false,click),lp);
     }
     private LinearLayout card(){
-        LinearLayout box=w.column();box.setBackground(w.shape(PANEL,16));w.pad(box,14,13,14,14);
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=w.dp(14);content.addView(box,lp);return box;
+        LinearLayout box=w.column();box.setBackground(w.shape(PANEL,16));w.pad(box,11,8,11,8);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=w.dp(7);content.addView(box,lp);return box;
     }
     private void link(LinearLayout box,String label,String url){
         Uri u=Uri.parse(url);if("https".equalsIgnoreCase(u.getScheme()) && u.getHost()!=null && u.getUserInfo()==null && !MainActivity.providerPage(u))button(box,label+"  ↗",()->a.open(u));
@@ -233,26 +257,32 @@ final class GamePage {
     private static boolean ended(JSONObject row){
         String end=Market.text(row,"expiry");try{return !end.isEmpty() && !Instant.parse(end).isAfter(Instant.now());}catch(Exception e){return false;}
     }
+    private void chooseDrm(){
+        DrmFilter.choose(a,selectedDrm,values->{
+            selectedDrm.clear();selectedDrm.addAll(values);
+            bindGameControls();paintContent();
+        });
+    }
     private void offers(){
-        line(content,"Prices",19,WHITE,true,14);
+        LinearLayout heading=w.row();w.pad(heading,0,6,0,0);content.addView(heading);
+        heading.addView(w.text("Prices",19,WHITE,true),w.flex());
+        String choice=DrmFilter.label(selectedDrm);
+        TextView filter=w.text("DRM · "+choice+"  ▾",13,LILAC,true);filter.setGravity(Gravity.CENTER);
+        w.pad(filter,12,0,12,0);w.action(filter,w.shape(PANEL,12),this::chooseDrm);
+        filter.setContentDescription("Filter by DRM, "+choice);heading.addView(filter,new LinearLayout.LayoutParams(-2,w.dp(44)));
         if(!offerMessage.isEmpty())line(content,offerMessage,13,LILAC,false,6);
-        List<JSONObject> rows=Market.offers(game,platform);SortedSet<String> available=new TreeSet<>();
+        List<JSONObject> rows=Market.offers(game,platform);
         Map<Integer,JSONObject> storeRecords=new LinkedHashMap<>();
         for(JSONObject item:Market.objects(rowsFor("lows"))){
             JSONObject shop=item.optJSONObject("shop");
             if(Market.nativeAmount(shop,item.optJSONObject("price"))<0)continue;
-            storeRecords.put(Market.shopId(shop),item);available.add(Market.text(shop,"name"));
+            storeRecords.put(Market.shopId(shop),item);
         }
         Set<Integer> displayed=new HashSet<>();
-        for(JSONObject row:rows)available.add(Market.text(row,"shop"));
-        if(!available.contains(filter))filter="";
-        if(available.size()>1)button(content,filter.isEmpty()?"Filter stores":"Store · "+filter,()->{
-            List<String> choices=new ArrayList<>();choices.add("All stores");choices.addAll(available);
-            new AlertDialog.Builder(a).setTitle("Show offers from").setItems(choices.toArray(new String[0]),(d,i)->{filter=i==0?"":choices.get(i);paintContent();}).show();
-        });
-        if(rows.isEmpty())line(content,Market.NO_PRICE,14,MUTED,false,12);
+        boolean matched=false;
         for(JSONObject row:rows){
-            if(!filter.isEmpty() && !filter.equals(Market.text(row,"shop")))continue;
+            if(!DrmFilter.matches(row,selectedDrm))continue;
+            matched=true;
             LinearLayout box=card(),head=w.row();box.addView(head);head.addView(w.text(Market.text(row,"shop"),16,WHITE,true),w.flex());
             boolean verified=row.has("paise");Market.LowPeriod period=Market.lowPeriod(row);
             TextView amount=w.text(verified?money(row.optLong("paise")):"—",18,WHITE,true);w.priceStyle(amount,period);head.addView(amount);
@@ -273,19 +303,24 @@ final class GamePage {
             }
             line(box,"Store all-time low  ·  "+(low<0?"Unavailable":money(low)),13,LILAC,true,5);
             String drm=names(row.optJSONArray("drm"));if(!drm.isEmpty())line(box,"Activation  ·  "+drm,12,MUTED,false,4);
-            line(box,"Updated "+age(Market.text(row,"updated")).toLowerCase(Locale.ROOT),12,MUTED,false,5);
-            if(row.optLong("cachedAt")>0)line(box,"Last checked "+date(Instant.ofEpochSecond(row.optLong("cachedAt")).toString()),12,LILAC,false,4);
-            if(row.optLong("expiry")>0)line(box,"Offer ends "+date(Instant.ofEpochSecond(row.optLong("expiry")).toString()),12,MUTED,false,4);
+            List<String> dates=new ArrayList<>();
+            if(!Market.text(row,"updated").isEmpty())dates.add("Updated "+age(Market.text(row,"updated")).toLowerCase(Locale.ROOT));
+            if(row.optLong("cachedAt")>0)dates.add("Checked "+date(Instant.ofEpochSecond(row.optLong("cachedAt")).toString()));
+            if(row.optLong("expiry")>0)dates.add("Ends "+date(Instant.ofEpochSecond(row.optLong("expiry")).toString()));
+            LinearLayout footer=w.row();box.addView(footer);
+            footer.addView(w.text(String.join(" · ",dates),11,MUTED,false),w.flex());
             Uri retailer=Uri.parse(Market.text(row,"url"));
             if("https".equalsIgnoreCase(retailer.getScheme()) && retailer.getHost()!=null && retailer.getUserInfo()==null && !MainActivity.providerPage(retailer)){
-                LinearLayout.LayoutParams cta=new LinearLayout.LayoutParams(-1,-2);cta.topMargin=w.dp(9);
-                box.addView(w.button("Open store ("+Market.text(row,"shop")+")  →",true,()->a.open(retailer)),cta);
+                TextView open=w.text("Open store ↗",12,LILAC,true);open.setGravity(Gravity.CENTER);
+                w.pad(open,8,0,3,0);w.action(open,w.shape(PANEL,8),()->a.open(retailer));
+                open.setContentDescription("Open "+Market.text(row,"shop"));footer.addView(open,new LinearLayout.LayoutParams(-2,w.dp(44)));
             }
         }
+        if(!matched)line(content,selectedDrm.isEmpty()?Market.NO_PRICE:"No current offers match the selected DRM.",13,MUTED,false,8);
+        if(!selectedDrm.isEmpty())return;
         for(Map.Entry<Integer,JSONObject> entry:storeRecords.entrySet()){
             if(displayed.contains(entry.getKey()))continue;
             JSONObject value=entry.getValue(),shop=value.optJSONObject("shop");
-            if(!filter.isEmpty() && !filter.equals(Market.text(shop,"name")))continue;
             LinearLayout box=card();line(box,Market.text(shop,"name"),16,WHITE,true,0);
             line(box,"Current  ·  "+Market.NO_PRICE,13,MUTED,false,4);
             line(box,"Store all-time low  ·  "+money(Market.nativeAmount(shop,value.optJSONObject("price"))),13,LILAC,true,5);
@@ -304,20 +339,29 @@ final class GamePage {
         if(rows.length()>limit)button(content,"Show more ("+(rows.length()-limit)+")",()->{visible.put(tab,limit+12);paintContent();});
     }
     private void gameRow(LinearLayout box,JSONObject item){
-        if(Market.text(item,"id").isEmpty())return;
+        String steamPath=Market.text(item,"steamPath");
+        boolean external=Market.text(item,"id").isEmpty();
+        if(external && !steamPath.matches("(bundle|sub)/[0-9]+"))return;
         LinearLayout row=w.row();w.pad(row,7,5,8,5);
         ImageView art=w.artView();row.addView(art,new LinearLayout.LayoutParams(w.dp(63),w.dp(38)));w.art(art,item,"banner145","banner300","boxart");
         LinearLayout caption=w.column();w.pad(caption,9,0,2,0);row.addView(caption,w.flex());
-        line(caption,Market.text(item,"title"),14,WHITE,true,0);JSONObject offer=Market.best(item,Market.ALL);
+        line(caption,Market.text(item,"title"),14,WHITE,true,0);JSONObject offer=Market.best(item,Market.ALL,selectedDrm);
         line(caption,offer==null?Market.text(item,"type").toUpperCase(Locale.ROOT):money(offer.optLong("paise"))+"  ·  "+Market.text(offer,"shop"),12,MUTED,false,3);
-        w.action(row,w.shape(PANEL,6),()->screen.openRelated(item));row.setContentDescription("Open "+Market.text(item,"title"));
+        w.action(row,w.shape(PANEL,6),()->{if(external)a.open(Uri.parse("https://store.steampowered.com/"+steamPath+"/"));else screen.openRelated(item);});row.setContentDescription("Open "+Market.text(item,"title"));
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=w.dp(5);box.addView(row,lp);
     }
     private void bundles(JSONArray rows){
         if(rows.length()==0)line(content,"ITAD lists no bundles containing this game.",14,MUTED,false,14);
         for(JSONObject b:firstRows(rows)){
-            LinearLayout box=card();JSONObject page=b.optJSONObject("page");line(box,Market.text(b,"title"),17,WHITE,true,0);
-            line(box,Market.text(page,"name")+"  ·  "+(ended(b)?"Ended":"Listed")+"  "+date(Market.text(b,"expiry")),13,MUTED,false,5);
+            LinearLayout box=card(),summary=w.column();box.addView(summary);
+            String bundleId=b.optString("id",Market.text(b,"title"));boolean open=expandedBundles.contains(bundleId);
+            JSONObject page=b.optJSONObject("page");
+            LinearLayout heading=w.row();summary.addView(heading);heading.addView(w.text(Market.text(b,"title"),15,WHITE,true),w.flex());
+            TextView arrow=w.text(open?"▴":"▾",14,LILAC,true);w.pad(arrow,8,0,0,0);heading.addView(arrow);
+            w.action(summary,w.shape(android.graphics.Color.TRANSPARENT,8),()->{if(open)expandedBundles.remove(bundleId);else expandedBundles.add(bundleId);paintContent();});
+            w.pad(summary,0,4,2,4);
+            line(summary,Market.text(page,"name")+"  ·  "+(ended(b)?"Ended":"Listed")+"  "+date(Market.text(b,"expiry")),13,MUTED,false,5);
+            if(!open)continue;
             JSONObject counts=b.optJSONObject("counts");if(counts!=null)line(box,counts.optInt("games")+" games  ·  "+counts.optInt("media")+" media",12,LILAC,false,5);
             int index=0;
             for(JSONObject tier:Market.objects(b.optJSONArray("tiers"))){
@@ -358,11 +402,18 @@ final class GamePage {
         return result==null?null:result.optJSONArray("data");
     }
     private void offerOverview(){
-        String[] sections={"lows","record","historyAll","packs","bundles"};
+        List<String> sections=new ArrayList<>(Arrays.asList("lows","record","historyAll","bundles"));
+        boolean hasSlug=!Market.text(game,"slug").isEmpty() || !Market.text(info(),"slug").isEmpty();
+        if(hasSlug)sections.add("relations");
+        JSONArray relations=rowsFor("relations");
+        if(relations==null && (hasSlug?loaded.containsKey("relations"):!waiting.contains("about"))){
+            sections.add("packs");
+            if(info()!=null && info().optInt("appid")>0)sections.add("memberships");
+        }
         for(String key:sections)if(!loaded.containsKey(key))request(key);
         line(content,"Price summary",20,WHITE,true,12);
         LinearLayout box=w.column();content.addView(box);
-        JSONObject best=Market.best(game,platform);
+        JSONObject best=Market.best(game,platform,selectedDrm);
         summaryRow(box,"Current best",best==null?-1:best.optLong("paise",-1),Market.text(best,"shop"),WHITE);
         JSONObject record=loaded.get("record");
         PriceRecords records=new PriceRecords(game,record==null?null:record.optJSONObject("data"),rowsFor("lows"),rowsFor("historyAll"));
@@ -375,16 +426,22 @@ final class GamePage {
         }
         offers();
         if(best==null && a.personal)button(content,"Search other editions",()->screen.relatedSearch(GameCatalog.seriesQuery(Market.text(game,"title"))));
-        JSONArray packs=rowsFor("packs");
-        if(packs!=null){
-            line(content,"DLCs and packages",19,WHITE,true,18);
-            line(content,"Matches by title in the ITAD catalog. Open an edition to check its contents.",12,MUTED,false,4);
-            for(String type:new String[]{"dlc","package"}){
-                line(content,type.equals("dlc")?"DLCs":"Packages",15,LILAC,true,10);
-                int count=0;
-                for(JSONObject item:Market.objects(packs))if(type.equals(Market.text(item,"type")) && Market.pcEdition(item)){gameRow(content,item);count++;}
-                if(count==0)line(content,"No matches listed.",13,MUTED,false,4);
-            }
+        List<JSONObject> catalog=Market.objects(relations==null?rowsFor("packs"):relations);
+        List<JSONObject> packages=new ArrayList<>();
+        if(relations==null)packages.addAll(Market.objects(rowsFor("memberships")));
+        Set<String> ids=new HashSet<>(),titles=new HashSet<>();
+        for(JSONObject item:packages){ids.add(Market.text(item,"id"));titles.add(GameCatalog.words(Market.text(item,"title")));}
+        boolean dlcHeading=false;
+        for(JSONObject item:catalog){
+            if(!Market.pcEdition(item))continue;
+            if("dlc".equals(Market.text(item,"type"))){
+                if(!dlcHeading){line(content,"DLCs",17,WHITE,true,12);dlcHeading=true;}
+                gameRow(content,item);
+            }else if(!ids.contains(Market.text(item,"id")) && titles.add(GameCatalog.words(Market.text(item,"title"))))packages.add(item);
+        }
+        if(!packages.isEmpty()){
+            line(content,"Packages",17,WHITE,true,12);
+            for(JSONObject item:packages)gameRow(content,item);
         }
         if(info()!=null && info().optInt("appid",-1)>0)
             link(content,"Browse this game’s DLC on Steam","https://store.steampowered.com/dlc/"+info().optInt("appid")+"/?cc="+PricingRegion.current.country);
@@ -434,36 +491,105 @@ final class GamePage {
         points.sort(Comparator.comparingLong(r->PriceChart.time(r)));
         new PriceChart(a,w,points).attach(content);
     }
-    private void about(JSONObject info){
-        line(content,"About "+Market.text(info,"title"),19,WHITE,true,14);
-        LinearLayout facts=card();fact(facts,"Release date",Market.text(info,"releaseDate"));fact(facts,"Developer",names(info.optJSONArray("developers")));
-        fact(facts,"Publisher",names(info.optJSONArray("publishers")));fact(facts,"Tags",names(info.optJSONArray("tags")));
-        List<String> features=new ArrayList<>();if(info.optBoolean("earlyAccess"))features.add("Early access");if(info.optBoolean("achievements"))features.add("Achievements");
-        if(info.optBoolean("tradingCards"))features.add("Trading cards");if(info.optBoolean("mature"))features.add("Mature content");
-        fact(facts,"Features",String.join(" · ",features));fact(facts,"Product type",Market.text(info,"type"));
-        JSONObject stats=info.optJSONObject("stats");if(stats!=null){number(facts,"ITAD rank",stats,"rank");number(facts,"Wishlisted",stats,"waitlisted");number(facts,"Collected",stats,"collected");}
-        JSONObject players=info.optJSONObject("players");
-        if(players!=null){LinearLayout box=card();line(box,"Steam players",16,WHITE,true,0);number(box,"Recent",players,"recent");number(box,"Day",players,"day");number(box,"Week",players,"week");number(box,"Peak",players,"peak");}
-        for(JSONObject r:Market.objects(info.optJSONArray("reviews"))){
-            LinearLayout box=card();line(box,Market.text(r,"source"),16,WHITE,true,0);number(box,"Score",r,"score");number(box,"Reviews",r,"count");link(box,"Read reviews",Market.text(r,"url"));
+    private static boolean validScore(JSONObject review){
+        int score=review.optInt("score",-1);
+        return score>=0 && score<=100;
+    }
+    private void rating(LinearLayout row,JSONObject review,boolean compact){
+        String source=Market.text(review,"source"),key=source.toLowerCase(Locale.ROOT);
+        boolean steam=key.equals("steam");
+        int mark=steam?R.drawable.review_steam:key.contains("meta")?R.drawable.review_metacritic:key.contains("opencritic")?R.drawable.review_opencritic:0;
+        LinearLayout chip=w.row();chip.setBackground(w.shape(PANEL,9));w.pad(chip,6,3,6,3);
+        if(mark!=0){
+            ImageView logo=new ImageView(a);logo.setImageResource(mark);
+            chip.addView(logo,new LinearLayout.LayoutParams(w.dp(compact?13:16),w.dp(compact?13:16)));
         }
+        String score=review.optInt("score")+(steam?"%":"");
+        LinearLayout caption=w.column();w.pad(caption,mark==0?0:4,0,0,0);chip.addView(caption);
+        line(caption,score,compact?11:14,WHITE,true,0);
+        if(!compact)line(caption,key.contains("user")?"Meta users":source,10,MUTED,false,0);
+        String reviews=Market.text(review,"count");
+        chip.setContentDescription(source+" "+score+(steam?" positive":" out of 100")+(reviews.isEmpty()?"":", "+reviews+" reviews"));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2);if(row.getChildCount()>0)lp.setMarginStart(w.dp(5));row.addView(chip,lp);
+    }
+    static String duration(long seconds){
+        if(seconds<=0)return "";
+        if(seconds<3600)return Math.max(1,Math.round(seconds/60.0))+" min";
+        return Math.round(seconds/3600.0)+" h";
+    }
+    private void about(JSONObject info){
+        JSONObject page=loaded.get("editorial"),detail=page==null?null:page.optJSONObject("data");
+        JSONObject summary=detail==null?null:detail.optJSONObject("summary");
+        line(content,"About "+Market.text(info,"title"),18,WHITE,true,10);
+        String text=Market.text(summary,"text");
+        line(content,text,14,WHITE,false,5);
+        if(!text.isEmpty())line(content,Market.text(summary,"author"),10,MUTED,false,2);
+        if(page==null)line(content,"Loading summary and play times…",12,MUTED,false,5);
+        else if(page.has("message"))button(content,"Retry summary and play times",()->{loaded.remove("editorial");paintContent();});
+        List<JSONObject> reviews=Market.objects(info.optJSONArray("reviews"));
+        HorizontalScrollView strip=new HorizontalScrollView(a);strip.setHorizontalScrollBarEnabled(false);
+        LinearLayout scores=w.row();strip.addView(scores);
+        for(JSONObject r:reviews)if(validScore(r))rating(scores,r,false);
+        if(scores.getChildCount()>0){
+            line(content,"Ratings",15,WHITE,true,12);w.pad(strip,0,5,0,0);content.addView(strip);
+        }
+        JSONObject times=detail==null?null:detail.optJSONObject("hltb");
+        LinearLayout play=w.row();play.setBaselineAligned(false);
+        String[] fields={"main","extra","complete","all"},labels={"Main story","Main + sides","Completionist","All styles"};
+        for(int i=0;times!=null && i<fields.length;i++){
+            String time=duration(times.optLong(fields[i]));if(time.isEmpty())continue;
+            LinearLayout cell=w.column();line(cell,time,15,WHITE,true,0);line(cell,labels[i],10,MUTED,false,0);play.addView(cell,w.flex());
+        }
+        if(play.getChildCount()>0){
+            line(content,"HowLongToBeat",15,WHITE,true,12);w.pad(play,0,5,0,0);content.addView(play);
+        }
+        line(content,String.join("  ·  ",nonempty(Market.text(info,"releaseDate"),names(info.optJSONArray("developers")))),13,LILAC,true,12);
+        String publisher=names(info.optJSONArray("publishers"));if(!publisher.isEmpty())line(content,"Published by "+publisher,12,MUTED,false,3);
+        line(content,names(info.optJSONArray("tags")),12,MUTED,false,3);
+        List<String> features=new ArrayList<>();
+        if(info.optBoolean("earlyAccess"))features.add("Early access");
+        if(info.optBoolean("achievements"))features.add("Achievements");
+        if(info.optBoolean("tradingCards"))features.add("Trading cards");
+        if(info.optBoolean("mature"))features.add("Mature content");
+        line(content,String.join(" · ",features),12,MUTED,false,3);
+        button(content,"Your ITAD game note",()->a.editGameNote(game));
         int appid=info.optInt("appid",-1);if(appid>0)link(content,"Store description and media","https://store.steampowered.com/app/"+appid+"/?cc="+PricingRegion.current.country);
     }
     private void stats(JSONObject data){
-        line(content,"ITAD Waitlist community",19,WHITE,true,14);LinearLayout box=card();
-        number(box,"Players tracking this game",data,"count");
-        JSONObject price=data.optJSONObject("price");if(price!=null)number(box,"Accept any price",price,"any");
-        line(box,"Community preferences include players in all regions.",13,MUTED,false,8);
-        JSONObject cut=data.optJSONObject("cut");if(cut!=null){
-            double avg=cut.optDouble("average",-1);if(avg>=0 && avg<=100)fact(box,"Average requested discount",Math.round(avg)+"%");
-            JSONArray buckets=cut.optJSONArray("buckets");if(buckets!=null && buckets.length()>0){
-                LinearLayout dist=card();line(dist,"Requested discounts",16,WHITE,true,0);
-                for(JSONObject bucket:Market.objects(buckets))if(bucket.has("bucket") && bucket.has("count"))fact(dist,bucket.optString("bucket")+"%",bucket.optString("count"));
+        JSONObject info=info(),stats=info==null?null:info.optJSONObject("stats");
+        line(content,"ITAD community",18,WHITE,true,10);
+        long wished=stats==null?-1:stats.optLong("waitlisted",-1);
+        long owned=stats==null?-1:stats.optLong("collected",-1);
+        long max=Math.max(wished,owned);
+        if(wished>=0 || owned>=0){
+            communityBar("Waitlisted",wished,max,LILAC);
+            communityBar("Collected",owned,max,GREEN);
+        }else if(data.optLong("count",-1)>=0){
+            line(content,String.format(Locale.getDefault(),"%,d tracking this game",data.optLong("count")),15,WHITE,true,6);
+        }else line(content,"Community counts unavailable.",13,MUTED,false,5);
+        JSONObject cuts=data.optJSONObject("cut");
+        double average=cuts==null?-1:cuts.optDouble("average",-1);
+        if(average>=0 && average<=100)line(content,"Average requested discount  ·  "+Math.round(average)+"%",13,MUTED,false,8);
+        JSONObject players=info==null?null:info.optJSONObject("players");
+        if(players!=null){
+            LinearLayout numbers=w.row();
+            String[] keys={"recent","day","week","peak"},labels={"Recent","24h peak","Week peak","All-time peak"};
+            for(int i=0;i<keys.length;i++)if(!players.isNull(keys[i])){
+                LinearLayout cell=w.column();line(cell,String.format(Locale.getDefault(),"%,d",players.optLong(keys[i])),14,WHITE,true,0);
+                line(cell,labels[i],10,MUTED,false,1);numbers.addView(cell,w.flex());
             }
+            if(numbers.getChildCount()>0){line(content,"Steam players",15,WHITE,true,12);w.pad(numbers,0,4,0,0);content.addView(numbers);}
         }
     }
-    private void number(LinearLayout box,String label,JSONObject obj,String field){if(obj!=null && !obj.isNull(field))fact(box,label,obj.optString(field));}
-    private void fact(LinearLayout box,String label,String value){
-        if(value.isEmpty())return;line(box,label,11,LILAC,true,8);line(box,value,15,WHITE,false,2);
+    private void communityBar(String label,long count,long max,int color){
+        if(count<0)return;
+        LinearLayout legend=w.row();w.pad(legend,0,6,0,2);content.addView(legend);
+        legend.addView(w.text(label,13,WHITE,false),w.flex());
+        legend.addView(w.text(String.format(Locale.getDefault(),"%,d",count),13,color,true));
+        ProgressBar bar=new ProgressBar(a,null,android.R.attr.progressBarStyleHorizontal);
+        bar.setIndeterminate(false);bar.setMax(1000);bar.setProgress(max>0?(int)Math.round(1000.0*count/max):0);
+        bar.setProgressTintList(android.content.res.ColorStateList.valueOf(color));
+        bar.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(RAISED));
+        bar.setContentDescription(label+", "+count);content.addView(bar,new LinearLayout.LayoutParams(-1,w.dp(6)));
     }
 }

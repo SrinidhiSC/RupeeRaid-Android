@@ -198,6 +198,42 @@ public class MarketScreenTest {
         scenario.recreate();awaitReady();
         onView(withContentDescription("Wishlist")).check(matches(isDisplayed()));
     }
+    @Test public void gameDetailRatingsDrmAndCommunity() throws Exception {
+        String id=featured.getString("id");
+        JSONObject about=new JSONObject().put("title",featured.getString("title"))
+                .put("reviews",new JSONArray().put(new JSONObject().put("source","Steam").put("score",82)))
+                .put("stats",new JSONObject().put("waitlisted",1517).put("collected",22349));
+        JSONObject editorial=new JSONObject().put("summary",new JSONObject().put("text","A game summary."))
+                .put("hltb",new JSONObject().put("main",14014));
+        JSONObject sections=new JSONObject().put("about",about).put("editorial",editorial).put("stats",new JSONObject());
+        for(String section:new String[]{"about","editorial","stats"}){
+            vault.write("guide-"+id+"-"+section,new JSONObject().put("saved",MainActivity.now())
+                    .put("generation","regional-offers-v2:"+vault.read("cacheGeneration")).put("data",sections.get(section)).toString());
+        }
+        scenario.onActivity(activity->activity.personal=true);
+        onView(withContentDescription("Wishlist")).perform(click());
+        onView(withText(featured.getString("title"))).perform(click());
+        onView(withContentDescription("Steam 82% positive")).check(matches(isDisplayed()));
+        onView(withContentDescription("Steam 82% positive")).check((badge,error)->{
+            if(error!=null)throw error;
+            View title=findText(badge.getRootView(),featured.optString("title"));
+            View card=(View)title.getParent().getParent();
+            int[] corner=new int[2],origin=new int[2];
+            badge.getLocationOnScreen(corner);card.getLocationOnScreen(origin);
+            assertEquals(origin[0]+card.getWidth()-card.getPaddingRight(),corner[0]+badge.getWidth(),1);
+            assertEquals(origin[1]+card.getHeight()-card.getPaddingBottom(),corner[1]+badge.getHeight(),1);
+        });
+        onView(withContentDescription("Filter by DRM, Any")).perform(scrollTo(),click());
+        onView(withText("DRM Free")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
+        onView(withText("Apply")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
+        onView(withText("No current offers match the selected DRM.")).perform(scrollTo());
+        onView(withContentDescription("About tab")).perform(scrollTo(),click());
+        onView(withText("A game summary.")).perform(scrollTo());
+        onView(withText("4 h")).perform(scrollTo()).check(matches(isDisplayed()));
+        onView(withContentDescription("Community tab")).perform(scrollTo(),click());
+        onView(withText("Waitlisted")).perform(scrollTo()).check(matches(isDisplayed()));
+        onView(withText("Collected")).check(matches(isDisplayed()));
+    }
     @Test public void homeWishlistSearchPlatformAndAccount() throws Exception {
         onView(withText("Trending games")).check(matches(isDisplayed()));preview("discover",true);
         onView(withContentDescription("See all trending games")).perform(click());

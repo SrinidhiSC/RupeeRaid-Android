@@ -2,7 +2,7 @@
 
 RupeeRaid runs directly on Android 8.0 and newer. The phone connects to IsThereAnyDeal (ITAD), saves an encrypted cache and schedules its own price checks.
 
-**[Download the installable 2.1 development APK](https://github.com/SrinidhiSC/RupeeRaid-Android/releases/download/v2.1/RupeeRaid-2.1-dev.apk)**. This build uses the same development signing certificate as 1.8. Keep your production signing keystore outside the repository.
+**[Download the installable 2.2.1 development APK](https://github.com/SrinidhiSC/RupeeRaid-Android/releases/download/v2.2.1/RupeeRaid-2.2.1-dev.apk)**. This build uses the same development signing certificate as 1.8. In Account & Settings, choose **Storage & sync → Check for updates** to check the latest public GitHub release.
 
 ## Develop on another device
 
@@ -29,7 +29,7 @@ The game page includes Wishlist, Notify, Own and Ignore. The store comparison re
 | --- | --- |
 | Offers | OAuth store-filtered deals for Waitlist games or key-authorized batch prices across ITAD shops. Shows original price, discount, source update, expiration, activation and coupon when supplied. |
 | Historical lows and price history | Offers presents the current best, all-time, one-year and three-month lows with eligible store observations and dates where available. Each store lists its current and all-time price. The separate Price history tab shows the historical change log for India. The app checks a low flag against the game-wide record and cheaper verified current offers. Three months, one year and all available history are supported. Each chart covers one store. |
-| DLC and packages in Offers, and Series | ITAD title search with product-type and title-word checks. Matches are suggestions. ITAD publishes neither a parent-DLC relationship nor a franchise membership field in v2.11. When the provider returns a Steam App ID, Offers can also open the publisher-listed DLC page on Steam. |
+| DLC and packages in Offers, and Series | Offers uses ITAD’s game-page relationships and artwork, with Steam package membership and ITAD title search as fallbacks. Series uses title matches. |
 | Bundles in Offers | ITAD’s exact game-to-bundle records, including past offers. Tiers open their actual included games. A tier gets a rupee amount only when its provider shop and currency qualify. |
 | Subscriptions and Giveaways | Country-specific subscription memberships and leaving dates. Giveaways come from a multi-region endpoint and link to the provider’s terms. |
 | About and Community | Release, studios, tags, features, reviews, player counts, community rankings and Waitlist statistics when present. Steam App IDs link to store descriptions and media. The ITAD notes control reads and updates the signed-in user’s game note. |
